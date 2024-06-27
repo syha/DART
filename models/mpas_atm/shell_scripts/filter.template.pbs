@@ -25,7 +25,8 @@ echo "host is " `hostname`
 
 echo $start_time >&! filter_started
 
-mpiexec_mpt dplace -s 1 ./filter     
+#mpiexec_mpt dplace -s 1 ./filter     	# command for NCAR cheyenne (old)
+mpirun ./filter      			# 	  for NCAR derecho
 wait
 
 if ( -e obs_seq.final )  touch filter_done

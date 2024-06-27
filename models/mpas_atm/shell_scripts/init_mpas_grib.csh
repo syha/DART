@@ -88,8 +88,7 @@ EOF
   ${LINK} ${RUN_DIR}/MPAS_RUN/${statfile} .
 
   #  Run init version of MPAS to create initial condition file
-#  mpirun.lsf ./init_atmosphere_model  || exit 2
-  mpiexec_mpt dplace -s 1 ./init_atmosphere_model  || exit 2
+  mpiexec ./init_atmosphere_model  || exit 2
   ${REMOVE} FILE:*
 
   #  Generate MPAS namelist file
@@ -109,8 +108,7 @@ EOF
   if ( -e log.0000.out ) ${REMOVE} log.*
 
   #  Run MPAS for the specified amount of time 
-#  mpirun.lsf ./atmosphere_model        || exit 3
-  mpiexec_mpt dplace -s 1 ./atmosphere_model   || exit 3
+  mpiexec ./atmosphere_model   || exit 3
 
   # Check the output file
   set frst = `sed -n '/<immutable_stream name=\"restart\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${STREAM_ATM} | \

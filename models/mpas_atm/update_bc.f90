@@ -56,8 +56,8 @@ character(len=*), parameter :: revdate  = ''
 character(len=256)  :: update_analysis_file_list = 'filter_in.txt'
 character(len=256)  :: update_boundary_file_list = 'boundary_inout.txt'
 integer             :: debug = 0
-logical             :: lbc_update_from_reconstructed_winds = .true.
-logical             :: lbc_update_winds_from_increments    = .true.
+logical             :: lbc_update_from_reconstructed_winds = .false.
+logical             :: lbc_update_winds_from_increments    = .false.
 
 
 namelist /update_bc_nml/ update_analysis_file_list, update_boundary_file_list, debug, &

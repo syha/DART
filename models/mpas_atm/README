@@ -4,54 +4,93 @@
 #
 # DART $Id$
 
-This directory contains the interface code and the shell scripts to
-run the MPAS-ATM atmospheric model with DART ensemble data assimilation.
+This directory contains the interface codes and the shell scripts to
+run the MPAS atmospheric model with DART ensemble data assimilation.
 
-The 'work' directory is where the executables are built.
-Run './quickbuild.sh' to compile all the executables.
+The MPAS-DART interface is built on the MPAS model's native meshes, producing
+ensemble analysis in either quasi-uniform or variable-resolution meshes.
+Both regional and global simulations are supported with MPAS V7+, and 
+shell scripts are provided for cycling with both configurations.
+
+BUILDING the MPAS-A model
+==========================
+
+This README is provided as a brief introduction to the MPAS/DART framework.
+It does not provide details about the MPAS model, nor does it provide 
+building instructions for the model. 
+
+For information about downloading and building the MPAS model, please refer to the
+github directory (https://github.com/MPAS-Dev/MPAS-Model/releases) or the 
+tutorial website (https://www2.mmm.ucar.edu/projects/mpas/tutorial/v8.0/index.html).
+
+The Data Assimilation section in the MPAS documentation is also found at 
+http://mpas-dev.github.io.
+
+
+Code Layout
+============
+
+Within the mpas_atm directory, code is laid out as follows.
+DART/models/mpas_atm
+             ├── data: sample data and templates for MPAS and filter runs
+             ├── shell_scripts: shell scripts for cycling experiments
+             ├── tutorial: Hands-on tutorial with sample data
+             ├── matlab: matlab scripts for simple diagnostics
+             └── work: a place to build all MPAS/DART executables
+
+The 'data' directory contains small example MPAS files, namelist, and
+I/O stream files for an MPAS run.  
+
+The 'shell_scripts' directory contains a collection of scripts that 
+support the workflow for cycling.  The ensemble of the MPAS model has 
+to run to advance the time, then 'filter' runs to do data assimilation 
+on the ensemble of MPAS restart files, then the ensemble of MPAS models 
+advances again, then 'filter' runs, in a cycle.
+See shell_scripts/README for the cycling workflow.
+
+Compilation
+===================================
+The DART interface for MPAS can be compiled with various fortran compilers
+such as (but not limited to) gfortran, pgf90, and intel. It has been tested on a
+Mac and NSF NCAR Supercomputers (Derecho).
+
+Note:  While older versions of MPAS (prior to V7) requires the PIO (Parallel IO)
+       and pNetCDF (Parallel NetCDF) libraries, 
+       DART uses only the plain NetCDF libraries. If an altered NetCDF
+       library is required by the parallel versions, there may be incompatibilities
+       between the run-time requirements of DART and MPAS. Static linking of one or
+       the other executable, or swapping of modules between executions may be
+       necessary. That being said, all the input and output files are in NetCDF format
+       (except for obs sequence files).
+
+BUILDING the MPAS/DART interface
+===================================
+To build the MPAS/DART interface, go to DART/build_templates/ first and 
+choose the appropriate mkmf.template file for your system and fortran 
+compiler (ex. gfortran), make a link like below.
+
+DART/build_templates> ln -s mkmf.template.gfortran mkmf.template
+
+After that, come back to the 'work' directory here and
+run './quickbuild.sh' to compile all the executables based on mkmf.template.
 './quickbuild.sh nompi' builds the serial versions only,
 './quickbuild.sh' is the default and builds MPI (parallel) versions
 of the filter and any other executables that can run on multiple CPUs.
 
-The 'shell_scripts' directory contains a collection of scripts that 
-support the workflow for cycling.  The ensemble of MPAS-ATM models have 
-to run to advance the time, then 'filter' runs to do data assimilation 
-on the ensemble of MPAS restart files, then the ensemble of MPAS models 
-advances again, then 'filter' runs, in a cycle.
+=== Note ===
+1) If you want to compile in a single precision (r4), edit 
+DART/assimilation_code/modules/utilities/types_mod.f90, as below.
 
-The 'data' directory contains a single small example MPAS-ATM restart
-file along with some stream files for an MPAS run.  See the README.txt
-for more details.
+!integer, parameter :: r8 = SELECTED_REAL_KIND(12)   ! 8 byte reals
+integer, parameter :: r8 = r4                      ! alias r8 to r4
 
-Here are more details on how the information in the input and output
-files are handled in a cycling experiment.
+Without editing it, the default compilation will use double precision (r8).
 
-Very many thanks to Soyoung Ha (NCAR/MMM) and Ryan Torn (U Albany) for 
-developing and documenting these scripts.
-
-
-"filter_in.txt" : member1/restart.nc
-       |          member2/restart.nc
-       |
-       | as input_state_file_list in &filter_nml
-       V
-    <filter> - produces the EnKF analyses 
-       |
-       | as output_state_file_list in &filter_nml
-       V
-"filter_out.txt" : member1/analysis.nc
-       |           member2/analysis.nc
-       |
-       | as input_file_list in &update_mpas_states_nml
-       V
-<update_mpas_states> - updates analysis vector in MPAS restart files for all members
-       |
-       | as output_file_list in &update_mpas_states_nml
-       V
-"filter_in.txt" : member1/restart.nc
-       |          member2/restart.nc
-       | (Warning: restart.nc are overwritten for analysis fields.)
-       | same as input_state_file_list in &filter_nml 
-       V
-advance_model.csh ensemble_member_number
+2) To make cycling runs, you need to compile the MPAS model as indicated in
+   the MPAS tutorial shown above.
+3) If you need to create your own initial ensemble, you might need to install
+   WPS/ungrib.exe and run MPAS/init_atmosphere as well.
+   See shell_scripts/README.init_ensemble for details.
+4) MPAS files no longer need to be converted to DART formatted files,
+   they can be read in directly from a input file list!
 

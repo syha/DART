@@ -479,5 +479,9 @@
    overwrite_obs_time       = .false.
    windowing_obs_time       = .true.
    windowing_int_hour       = 0.5
+   increase_bdy_error       = .true.
+   maxobsfac                = 5.
+   obsdistbdy               = 90000.0     ! meters
+   obs_boundary             = 21000.0     ! meters
 /
 

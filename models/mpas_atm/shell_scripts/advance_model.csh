@@ -17,6 +17,8 @@
 # 5.  Regional MPAS is also supported, if chosen.
 # 6.  Checks for incomplete runs.
 # 7.  Saves horizontal winds if save_wind = true (for extended forecasts later).
+# 8.  if make_lbc == true in the global simulation, the global file is being cut to make an LBC file 
+#     at the target time, which can be used for regional cycling later on.
 #
 # Note: 1. This script supports MPAS V7+ and the Manhattan release of DART. 
 #          It is NOT backward compatible for older versions.
@@ -28,8 +30,9 @@
 #          (which is supposed to be run before running this script).
 #       4. For the required data to run this script, check the section of 'dependencies'.
 #       5. Anything specific to the experiment is supposed to be provided in ${CENTRALDIR}/.
-#       6. Regional MPAS is supported in DART, but lbc files and the regional mesh should 
+#       6. Regional MPAS is supported in DART, but the regional mesh should 
 #          be provided by users before running this script.
+#       7. create_lbc.csh is called to create LBC files in this script, 
 #          For more info, please contact Soyoung Ha (syha@ucar.edu).
 #
 # Arguments for this script (created by 'filter' or 'perfect_model_obs') are:
@@ -41,6 +44,10 @@
 #----------------------------------------------------------------------
 set ensemble_member = $1
 set ensemble_max    = $2
+
+# Do you want to create an LBC file? This can be true for global runs only.
+#-------------------------------------------------------------------
+set make_lbc == true 
 
 # Do you want to save horizontal winds in the analysis file?
 #-------------------------------------------------------------------
@@ -249,6 +256,41 @@ EOF
       echo "Model failure! Check file " ${CENTRALDIR}/blown.${tanal}_${tfcst}.out
       exit 1
    endif
+
+   #-------------------------------------------------------------------
+   # Create an LBC file from the global simulation valid at the target time - to be used for regional runs later on.
+   #-------------------------------------------------------------------
+   set fini = `sed -n '/<immutable_stream name=\"input\"/,/\/>/{/Scree/{p;n};/##/{q};p}' streams.atmosphere | \
+               grep filename_template | awk -F= '{print $2}' | awk -F$ '{print $1}' | sed -e 's/"//g'`
+   set tlbc = `echo $date_utc | cut -d : -f1`
+
+   if( ( $make_lbc == true ) && ( $is_it_regional == true ) ) then
+	      
+      set g_lbc = `sed -n '/<stream name=\"mpas_lbcs\"/,/<\/stream>/{/Scree/{p;n};/##/{q};p}' streams.atmosphere | \
+                    grep filename_template | awk -F= '{print $2}' | awk -F$ '{print $1}' | sed -e 's/"//g'`
+      set glbc = ${g_lbc}${tlbc}.nc
+      set flbc = lbc.${tlbc}.nc
+      ls -lL ${glbc}                                           || exit
+
+      foreach f ( create_lbc.csh create_region )
+       if ( ! -x ${CENTRALDIR}/$f ) then
+	   if ( -e ../shell_scripts/$f ) then
+              echo advance_model.csh copies ../shell_scripts/$f.
+	      \cp -pf ../shell_scripts/$f .
+           else
+              echo ABORT\: advance_model.csh could not find required executable dependency ${CENTRALDIR}/$f.
+              exit 1
+	   endif
+       endif
+      end
+
+      echo ${CENTRALDIR}/create_lbc.csh $fini $glbc. Check create_lbc.${tlbc}.log
+           ${CENTRALDIR}/create_lbc.csh $fini $glbc >      create_lbc.${tlbc}.log
+      ls -lL ${flbc}                                           || exit
+      ${MOVE} ${glbc} ${g_lbc}${tlbc}.fcst${assim_hour}h.nc    || exit
+
+   endif # if( ( $make_lbc == true ) && ( $is_it_regional == true ) then
+   #-------------------------------------------------------------------
 
    if($save_wind == true) then
  

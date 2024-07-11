@@ -104,7 +104,7 @@ foreach fn ( advance_model.csh )
    endif
 end
 
-foreach fn ( filter advance_time update_mpas_states )
+foreach fn ( filter advance_time update_mpas_states update_bc )
    if ( ! -x $fn ) then
       echo ${LINK} ${DART_DIR}/${fn} .
            ${LINK} ${DART_DIR}/${fn} .
@@ -201,8 +201,14 @@ endif
 
 set is_it_regional = `grep config_apply_lbcs ${NML_MPAS} | awk '{print $3}'`
 if ( $is_it_regional == true ) then
-    echo This script does not support a regional mpas model yet.
-    exit
+    echo This script runs a regional mpas model.
+# filename_template="lbc.$Y-$M-$D_$h.$m.$s.nc" => set fbdy = lbc.
+    set fbdy = `sed -n '/<immutable_stream name=\"lbc_in\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${STREAM_ATM} | \
+                grep filename_template | awk -F= '{print $2}' | awk -F$ '{print $1}' | sed -e 's/"//g'`
+    set flbc = `grep bdy_template_filename ${NML_DART} | awk '{print $3}' | cut -d ',' -f1 | sed -e "s/'//g" | sed -e 's/"//g'`
+    ${LINK} ${B_TEMPLATE} $flbc
+else
+    echo This script runs a global mpas model.
 endif
 chmod +x ./advance_model.csh
 
@@ -503,7 +509,56 @@ EOF
   endif
 
   #------------------------------------------------------
-  # 7. Advance model for each member
+  # 7. Run update_bc for all ensemble members (for regional MPAS)
+  #------------------------------------------------------
+  if ( $is_it_regional > 0 ) then
+
+  set anllist = `grep update_analysis_file_list input.nml | awk '{print $3}' | cut -d ',' -f1 | sed -e "s/'//g" | sed -e 's/"//g'`
+  if($anllist != $fanal) then
+     echo $anllist should be the same as $fanal for update_bc. Exit.
+     exit
+  endif
+  set bdylist = `grep update_boundary_file_list input.nml | awk '{print $3}' | cut -d ',' -f1 | sed -e "s/'//g" | sed -e 's/"//g'`
+  if( -e $bdylist) ${REMOVE} $bdylist
+  if( -e  bdynext) ${REMOVE}  bdynext
+
+  echo Creating $bdylist for update_bc now.
+  set n = 1
+  while ( $n <= $ENS_SIZE )
+    set lbc0 = ${fbdy}`echo ${time_anl} 0 -w | advance_time | sed -e "s/:/\./g"`.nc
+    set lbcN = ${fbdy}`echo ${time_nxt} 0 -w | advance_time | sed -e "s/:/\./g"`.nc
+    if( -e member$n/${lbc0} ) then
+        echo member$n/${lbc0} >> $bdylist
+        ${COPY} member$n/${lbc0} member$n/prior.${lbc0}
+    else
+        echo Cannot find member$n/${lbc0}.
+    endif
+    if( -e member$n/${lbcN} ) then
+        echo member$n/${lbcN} >> bdynext
+    else
+        echo We need LBCs for the next time, but cannot find member$n/${lbcN}.
+    endif
+    @ n++
+  end
+
+  set nbdy = `cat cat $bdylist | wc -l`
+  set nbdyN = `cat cat bdynext | wc -l`
+  if($nbdy != $ENS_SIZE || $nbdyN != $ENS_SIZE) then
+     echo Not enough LBC files for the regional MPAS run. Stop.
+     exit
+  endif
+
+  ${DART_DIR}/update_bc >! logs/update_bc.${icyc}.log
+  set i_err = `grep ERROR  logs/update_bc.${icyc}.log | wc -l`
+  if( ${i_err} > 0 ) then
+     echo Error in logs/update_bc.${icyc}.log.
+     exit
+  endif
+
+  endif #( $is_it_regional > 0 ) then
+
+  #------------------------------------------------------
+  # 8. Advance model for each member
   #------------------------------------------------------
   # Run forecast for ensemble members until the next analysis time
   echo Advance models for ${ENS_SIZE} members now...
@@ -516,7 +571,7 @@ EOF
     if ( $RUN_IN_PBS == yes ) then
 
       set job_ensemble = ${EXPERIMENT_NAME}.${icyc}.e${n}
-      set jobn = `echo $job_ensemble | cut -c1-15`  # Stupid cheyenne cannot show the full job name.
+      set jobn = `echo $job_ensemble | cut -c1-8`
 
       cat >! advance.sed << EOF
       s#JOB_NAME#${job_ensemble}#g
@@ -557,7 +612,7 @@ EOF
   endif
 
   #------------------------------------------------------
-  # 8. Store output files
+  # 9. Store output files
   #------------------------------------------------------
   echo Saving output files for ${time_anl}.
   ls -lrt >> ${sav_dir}/list
@@ -569,7 +624,7 @@ EOF
   end
  
   #------------------------------------------------------
-  # 9. Get ready to run filter for next cycle.
+  # 10. Get ready to run filter for next cycle.
   #------------------------------------------------------
   cd $RUN_DIR
   ls -lL list.${time_nxt}.txt		|| exit

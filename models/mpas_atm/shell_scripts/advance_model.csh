@@ -28,7 +28,8 @@
 #          (which is supposed to be run before running this script).
 #       4. For the required data to run this script, check the section of 'dependencies'.
 #       5. Anything specific to the experiment is supposed to be provided in ${CENTRALDIR}/.
-#       6. Regional MPAS is not supported in DART yet. 
+#       6. Regional MPAS is supported in DART, but lbc files and the regional mesh should 
+#          be provided by users before running this script.
 #          For more info, please contact Soyoung Ha (syha@ucar.edu).
 #
 # Arguments for this script (created by 'filter' or 'perfect_model_obs') are:
@@ -48,7 +49,8 @@ set save_wind = false
 # mpi command
 #-------------------------------------------------------------------
 #set mpicmd = "mpi -n 4"			# Mac OS
-set mpicmd = "mpiexec_mpt"			# dplace -s 1"	# Cheyenne
+#set mpicmd = "mpiexec_mpt"			# dplace -s 1"	# Cheyenne
+set mpicmd = "mpirun"			# NCAR Derecho
 
 # Other commands
 #-------------------------------------------------------------------
@@ -206,8 +208,25 @@ EOF
 
    set is_it_regional = `grep config_apply_lbcs namelist.atmosphere | awk '{print $3}'`
    if ( $is_it_regional == true ) then
-        echo Regional MPAS is not supported yet. Exit.
-        exit
+        echo This is a regional MPAS run.
+        set is_lbc_there = `grep config_apply_lbcs namelist.atmosphere | wc -l`
+        if($is_lbc_there != 1) then
+           echo We need config_apply_lbcs in namelist.atmosphere. Use MPASV7.0 and above.
+           exit
+        endif
+        cat >! lbc.sed << EOF
+   /config_apply_lbcs /c\
+    config_apply_lbcs = true
+EOF
+        cat lbc.sed >> script.sed
+        sed -f script.sed ${CENTRALDIR}/namelist.atmosphere >! namelist.atmosphere
+
+        set blist  = `grep update_boundary_file_list ${CENTRALDIR}/input.nml | awk '{print $3}' | cut -d ',' -f1 | sed -e "s/'//g" | sed -e 's/"//g'`
+        set flbc = `head -n $ensemble_member ${CENTRALDIR}/${blist}  | tail -1`
+        set tnow = `echo $anal_utc | sed -e "s/:/\./g"`
+        set tnxt = `echo $targ_utc | sed -e "s/:/\./g"`
+        set flbcN = `echo $flbc | sed -e "s/$tnow/$tnxt/g"`
+        ls -lL ${flbc} ${flbcN}                 || exit
    endif
 
    # clean out any old log files

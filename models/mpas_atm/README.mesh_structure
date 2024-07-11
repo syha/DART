@@ -1,0 +1,305 @@
+MPAS mesh structure
+====================
+
+Overview
+--------
+
+This document describes the DART interface for the atmospheric component 
+of the Model for Prediction Across Scales
+`MPAS <https://ncar.ucar.edu/what-we-offer/models/model-prediction-across-scales-mpas>`, 
+which is a fully compressible nonhydrostatic atmospheric model using a 
+height-based terrain-following vertical coordinate and centroidal Voronoi meshes for
+horizontal discretization, formally Spherical Centriodal Voronoi Tesselations (SCVTs). 
+This allows for either quasi-uniform or variable-resolution meshes with local refinements. 
+The MPAS/DART interface was built on the SCVT-dual mesh and does not regrid to regular lat/lon grids.
+
+Since MPAS V7.0, regional or limited-area simulations are also supported with
+a single namelist parameter change (e.g., config_apply_lbcs = true in namelist.atmosphere) 
+and lateral boundary conditions (lbc) provided as specified in streams.atmosphere.
+And the MPAS/DART interface fully supports both global and regional configurations.
+Due to the model updates, we recommend to use MPAS V8+ for regional cycling.
+
+The DART interface has constants set to match MPAS v5.0 onwards as defined in 
+`MPAS-Model/src/framework/mpas_constants.F <https://github.com/MPAS-Dev/MPAS-Model/blob/master/src/framework/mpas_constants.F>`__.
+If you need to reproduce work with DART and MPAS v4 you will need to change the model_mod.f90 
+parameters ``cp``, ``cv`` and ``rvord`` to match MPAS v4. 
+
+WindDA_options
+-----------------------
+
+In the C-grid discretization, the normal component of velocity on cell edges 
+(called `edge_wind` or `edge_normal_speed`) is prognosed (and is represented as `u`), 
+while zonal and meridional wind components (called uReconstructZonal and uReconstructMeridional, 
+respectively) are only diagnostic variables defined at cell centers. 
+We provide several options to choose from in the assimilation of wind observations as shown below.
+
+The wind options during a DART assimilation are controlled by combinations of 4
+different namelist values. The values determine which fields the forward
+operator uses to compute expected observation values; how the horizontal
+interpolation is computed in that forward operator; and how the assimilation
+increments are applied to update the wind quantities in the state vector.
+Preliminary results based on real data assimilation experiments indicate that
+performance is better when the zonal and meridional winds are used as input to
+the forward operator that uses Barycentric interpolation, and when the
+prognostic *u* wind is updated by the incremental method described in the figure
+below. However there remain scientific questions about how best to handle the
+wind fields under different situations. Thus we have kept all implemented
+options available for use in experimental comparisons. See the figure below for
+a flow-chart representation of how the 4 namelist items interact:
+
+
+MPAS Grid Information
+-----------------------
+
+As the forward operators use the unstructured grid meshes in MPAS, the
+DART/MPAS interface needs to read static variables related to the grid structure
+from the MPAS template file (specified in ``init_template_filename``).
+These variables are used to find the closest cell to an observation point in the
+cartesian coordinate (to avoid the polar issues).
+
++-----------------------------------+-----------------------------------------+
+| integer :: nCells                 | the number of cell centers              |
++-----------------------------------+-----------------------------------------+
+| integer :: nEdges                 | the number of cell edges                |
++-----------------------------------+-----------------------------------------+
+| integer :: nVertices              | the number of cell vertices             |
++-----------------------------------+-----------------------------------------+
+| integer :: nVertLevels            | the number of vertical levels for mass  |
+|                                   | fields                                  |
++-----------------------------------+-----------------------------------------+
+| integer :: nVertLevelsP1          | the number of vertical levels for       |
+|                                   | vertical velocity                       |
++-----------------------------------+-----------------------------------------+
+| integer :: nSoilLevels            | the number of soil levels               |
++-----------------------------------+-----------------------------------------+
+| real(r8) :: latCell(:)            | the latitudes of the cell centers       |
+|                                   | [-90,90]                                |
++-----------------------------------+-----------------------------------------+
+| real(r8) :: lonCell(:)            | the longitudes of the cell centers [0,  |
+|                                   | 360]                                    |
++-----------------------------------+-----------------------------------------+
+| real(r8) :: latEdge(:)            | the latitudes of the edges [-90,90], if |
+|                                   | edge winds are used.                    |
++-----------------------------------+-----------------------------------------+
+| real(r8) :: lonEdge(:)            | the longitudes of the edges [0, 360],   |
+|                                   | if edge winds are used.                 |
++-----------------------------------+-----------------------------------------+
+| real(r8) :: xVertex(:)            | The cartesian location in x-axis of the |
+|                                   | vertex                                  |
++-----------------------------------+-----------------------------------------+
+| real(r8) :: yVertex(:)            | The cartesian location in y-axis of the |
+|                                   | vertex                                  |
++-----------------------------------+-----------------------------------------+
+| real(r8) :: zVertex(:)            | The cartesian location in z-axis of the |
+|                                   | vertex                                  |
++-----------------------------------+-----------------------------------------+
+| real(r8) :: xEdge(:)              | The cartesian location in x-axis of the |
+|                                   | edge, if edge winds are used.           |
++-----------------------------------+-----------------------------------------+
+| real(r8) :: yEdge(:)              | The cartesian location in y-axis of the |
+|                                   | edge, if edge winds are used.           |
++-----------------------------------+-----------------------------------------+
+| real(r8) :: zEdge(:)              | The cartesian location in z-axis of the |
+|                                   | edge, if edge winds are used.           |
++-----------------------------------+-----------------------------------------+
+| real(r8) :: zgrid(:,:)            | geometric height at cell centers,       |
+|                                   | but C-grid staggered vertically.        |
+|                                   | (nCells, nVertLevelsP1)                 |
++-----------------------------------+-----------------------------------------+
+| integer :: CellsOnVertex(:,:)     | list of cell centers defining a         |
+|                                   | triangle                                |
++-----------------------------------+-----------------------------------------+
+| integer :: edgesOnCell(:,:)       | list of edges on each cell              |
++-----------------------------------+-----------------------------------------+
+| integer :: verticesOnCell(:,:)    | list of vertices on each cell           |
++-----------------------------------+-----------------------------------------+
+| integer :: edgeNormalVectors(:,:) | unit direction vectors on the edges     |
+|                                   | (only used if *use_u_for_wind* =        |
+|                                   | .true.)                                 |
++-----------------------------------+-----------------------------------------+
+
+model_mod variable storage
+--------------------------
+
+The ``&mpas_vars_nml`` within ``input.nml`` defines the list of MPAS variables
+used to build the DART state vector. Combined with an MPAS analysis file, the
+information is used to determine the size of the DART state vector and derive
+the metadata. To keep track of what variables are contained in the DART state
+vector, an array of a user-defined type called "progvar" is available with the
+following components:
+
+.. code-block:: fortran
+
+   type progvartype
+      private
+      character(len=NF90_MAX_NAME) :: varname
+      character(len=NF90_MAX_NAME) :: long_name
+      character(len=NF90_MAX_NAME) :: units
+      character(len=NF90_MAX_NAME), dimension(NF90_MAX_VAR_DIMS) :: dimname
+      integer, dimension(NF90_MAX_VAR_DIMS) :: dimlens
+      integer :: xtype         ! netCDF variable type (NF90_double, etc.) 
+      integer :: numdims       ! number of dimensions - excluding TIME
+      integer :: numvertical   ! number of vertical levels in variable
+      integer :: numcells      ! number of cell locations (typically cell centers)
+      integer :: numedges      ! number of edge locations (edges for normal velocity)
+      logical :: ZonHalf       ! vertical coordinate for mass fields (nVertLevels)
+      integer :: varsize       ! variable size (dimlens(1:numdims))
+      integer :: index1        ! location in dart state vector of first occurrence
+      integer :: indexN        ! location in dart state vector of last  occurrence
+      integer :: dart_kind
+      character(len=paramname_length) :: kind_string
+      logical  :: clamping     ! does variable need to be range-restricted before 
+      real(r8) :: range(2)     ! lower and upper bounds for the data range.
+      logical  :: out_of_range_fail  ! is out of range fatal if range-checking?
+   end type progvartype
+
+   type(progvartype), dimension(max_state_variables) :: progvar
+
+The variables are simply read from the MPAS analysis file and stored in the
+DART state vector such that all quantities for one variable are stored
+contiguously. Within each variable; they are stored vertically-contiguous for
+each horizontal location. From a storage standpoint, this would be equivalent
+to a Fortran variable dimensioned x(nVertical,nHorizontal,nVariables). The
+fastest-varying dimension is vertical, then horizontal, then variable ...
+naturally, the DART state vector is 1D. Each variable is also stored this way
+in the MPAS analysis file.
+
+Analysis File NetCDF header
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The header of an MPAS analysis file is presented below - simply for context.
+Keep in mind that **many** variables have been removed for clarity. Also keep
+in mind that the multi-dimensional arrays listed below have the dimensions
+reversed from the Fortran convention. **Note:** the variables marked
+'available in dart' are available as metadata variables in DART. Just to be
+perfectly clear, they are not 'state'.
+
+.. code-block:: bash
+
+   $ ncdump -h mpas_init.nc
+   netcdf mpas_analysis {
+   dimensions:
+            StrLen = 64 ;
+            Time = UNLIMITED ; // (1 currently)
+            nCells = 10242 ;                                  available in DART
+            nEdges = 30720 ;                                  available in DART
+            maxEdges = 10 ;
+            maxEdges2 = 20 ;
+            nVertices = 20480 ;                               available in DART
+            TWO = 2 ;
+            THREE = 3 ;
+            vertexDegree = 3 ;
+            FIFTEEN = 15 ;
+            TWENTYONE = 21 ;
+            R3 = 3 ;
+            nVertLevels = 41 ;                                available in DART
+            nVertLevelsP1 = 42 ;                              available in DART
+            nMonths = 12 ;
+            nVertLevelsP2 = 43 ;
+            nSoilLevels = 4 ;                                 available in DART
+   variables:
+            char xtime(Time, StrLen) ;                        available in DART
+            double latCell(nCells) ;                          available in DART
+            double lonCell(nCells) ;                          available in DART
+            double latEdge(nEdges) ;                          available in DART
+            double lonEdge(nEdges) ;                          available in DART
+            int indexToEdgeID(nEdges) ;
+            double latVertex(nVertices) ;
+            double lonVertex(nVertices) ;
+         double xVertex(nVertices) ;                       available in DART
+         double yVertex(nVertices) ;                       available in DART
+         double zVertex(nVertices) ;                       available in DART
+         double xEdge(nVertices) ;                         available in DART
+         double yEdge(nVertices) ;                         available in DART
+         double zEdge(nVertices) ;                         available in DART
+            int indexToVertexID(nVertices) ;
+            int cellsOnEdge(nEdges, TWO) ;
+            int nEdgesOnCell(nCells) ;
+            int nEdgesOnEdge(nEdges) ;
+            int edgesOnCell(nCells, maxEdges) ;               available in DART
+            int edgesOnEdge(nEdges, maxEdges2) ;
+            double weightsOnEdge(nEdges, maxEdges2) ;
+            double dvEdge(nEdges) ;
+            double dcEdge(nEdges) ;
+            double angleEdge(nEdges) ;
+            double edgeNormalVectors(nEdges, R3) ;            available in DART
+            double cellTangentPlane(nEdges, TWO, R3) ;
+            int cellsOnCell(nCells, maxEdges) ;
+            int verticesOnCell(nCells, maxEdges) ;            available in DART
+            int verticesOnEdge(nEdges, TWO) ;
+            int edgesOnVertex(nVertices, vertexDegree) ;
+            int cellsOnVertex(nVertices, vertexDegree) ;      available in DART
+            double kiteAreasOnVertex(nVertices, vertexDegree) ;
+            double rainc(Time, nCells) ;
+            double cuprec(Time, nCells) ;
+            double cutop(Time, nCells) ;
+            double cubot(Time, nCells) ;
+            double relhum(Time, nCells, nVertLevels) ;
+            double qsat(Time, nCells, nVertLevels) ;
+            double graupelnc(Time, nCells) ;
+            double snownc(Time, nCells) ;
+            double rainnc(Time, nCells) ;
+            double graupelncv(Time, nCells) ;
+            double snowncv(Time, nCells) ;
+            double rainncv(Time, nCells) ;
+            double sr(Time, nCells) ;
+            double surface_temperature(Time, nCells) ;
+            double surface_pressure(Time, nCells) ;
+            double coeffs_reconstruct(nCells, maxEdges, R3) ;
+            double theta_base(Time, nCells, nVertLevels) ;
+            double rho_base(Time, nCells, nVertLevels) ;
+            double pressure_base(Time, nCells, nVertLevels) ;
+            double exner_base(Time, nCells, nVertLevels) ;
+            double exner(Time, nCells, nVertLevels) ;
+            double h_divergence(Time, nCells, nVertLevels) ;
+            double uReconstructMeridional(Time, nCells, nVertLevels) ;
+            double uReconstructZonal(Time, nCells, nVertLevels) ;
+            double uReconstructZ(Time, nCells, nVertLevels) ;
+            double uReconstructY(Time, nCells, nVertLevels) ;
+            double uReconstructX(Time, nCells, nVertLevels) ;
+            double pv_cell(Time, nCells, nVertLevels) ;
+            double pv_vertex(Time, nVertices, nVertLevels) ;
+            double ke(Time, nCells, nVertLevels) ;
+            double rho_edge(Time, nEdges, nVertLevels) ;
+            double pv_edge(Time, nEdges, nVertLevels) ;
+            double vorticity(Time, nVertices, nVertLevels) ;
+            double divergence(Time, nCells, nVertLevels) ;
+            double v(Time, nEdges, nVertLevels) ;
+            double rh(Time, nCells, nVertLevels) ;
+            double theta(Time, nCells, nVertLevels) ;
+            double rho(Time, nCells, nVertLevels) ;
+            double qv_init(nVertLevels) ;
+            double t_init(nCells, nVertLevels) ;
+            double u_init(nVertLevels) ;
+            double pressure_p(Time, nCells, nVertLevels) ;
+            double tend_theta(Time, nCells, nVertLevels) ;
+            double tend_rho(Time, nCells, nVertLevels) ;
+            double tend_w(Time, nCells, nVertLevelsP1) ;
+            double tend_u(Time, nEdges, nVertLevels) ;
+            double qv(Time, nCells, nVertLevels) ;
+            double qc(Time, nCells, nVertLevels) ;
+            double qr(Time, nCells, nVertLevels) ;
+            double qi(Time, nCells, nVertLevels) ;
+            double qs(Time, nCells, nVertLevels) ;
+            double qg(Time, nCells, nVertLevels) ;
+            double tend_qg(Time, nCells, nVertLevels) ;
+            double tend_qs(Time, nCells, nVertLevels) ;
+            double tend_qi(Time, nCells, nVertLevels) ;
+            double tend_qr(Time, nCells, nVertLevels) ;
+            double tend_qc(Time, nCells, nVertLevels) ;
+            double tend_qv(Time, nCells, nVertLevels) ;
+            double qnr(Time, nCells, nVertLevels) ;
+            double qni(Time, nCells, nVertLevels) ;
+            double tend_qnr(Time, nCells, nVertLevels) ;
+            double tend_qni(Time, nCells, nVertLevels) ;
+
+
+References
+----------
+
+The Data Assimilation section in the MPAS documentation found at
+http://mpas-dev.github.io.
+
+.. |MPAS_grid_structure| image:: ../../guide/images/MPAS_grid_structure.png
+
+.. |WindDA_options| image:: ../../guide/images/MPAS_WindDA_options.png

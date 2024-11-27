@@ -2110,6 +2110,14 @@ lbc_variables(4) = 'lbc_rho'
 lbc_variables(5) = 'lbc_theta'
 lbc_variables(6) = 'lbc_u'
 lbc_variables(7) = 'lbc_w'
+lbc_variables(8) = 'lbc_qi'  ! CSS added elements 8-15 
+lbc_variables(9) = 'lbc_qs'
+lbc_variables(10) = 'lbc_qg'
+lbc_variables(11) = 'lbc_nr'
+lbc_variables(12) = 'lbc_ni'
+lbc_variables(13) = 'lbc_nc'
+lbc_variables(14) = 'lbc_ns'
+lbc_variables(15) = 'lbc_ng'
 
 ncid = nc_open_file_readonly(template_filename, 'set_lbc_variables')
 if (nc_variable_exists(ncid, 'lbc_ur')) then

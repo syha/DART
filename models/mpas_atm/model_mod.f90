@@ -4950,6 +4950,7 @@ select case (ztypeout)
    ! we have the vert_level and cellid - no need to call find_triangle or find_vert_indices
 
    zout(:) = vert_level
+   istatus(:) = 0
 
    if (debug > 9 .and. do_output()) then
       write(string2,'("zout_in_level for member 1:",F10.2)') zout(1)
@@ -5015,6 +5016,7 @@ select case (ztypeout)
       if ( .not. progvar(ivars(1))%onHalf)   zout(:) = zGridFull(vert_level, cellid)
       if ( .not. progvar(ivars(1))%onCenter) zout(:) = zGridEdge(vert_level, cellid)
    endif
+   istatus(:) = 0
 
    if (debug > 9 .and. do_output()) then
       write(string2,'("zout[m] for member 1:",F10.2)') zout(1)

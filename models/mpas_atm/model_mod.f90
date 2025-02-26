@@ -1310,7 +1310,7 @@ if ( surface_obs .and. ((obs_kind == QTY_TEMPERATURE       ) .or. &
         ivar = get_progvar_index_from_kind(obs_kind) ! update ivar to get surface vars
 
         ! Reject if state var not exists or has multiple levels
-        if ( ivar < 0 .or. progvar(ivar)%numvertical /= 1) then
+        if ( ivar < 0 .or. progvar(ivar)%numvertical > 1) then
            if (debug > 1 .and. do_output()) then
                print *, 'OBS is rejected because corresponding state var is '
                print *, 'not available or 2D Variable(nCells,nVert)'
@@ -1382,7 +1382,7 @@ else if (obs_kind == QTY_VAPOR_MIXING_RATIO      .or. obs_kind == QTY_2M_SPECIFI
        tvars(1) = get_progvar_index_from_kind(obs_kind)
 
        ! Reject if state var not exists or has multiple levels
-       if ( tvars(1) < 0 .or. progvar(tvars(1))%numvertical /= 1) then
+       if ( tvars(1) < 0 .or. progvar(tvars(1))%numvertical > 1) then
           if (debug > 1 .and. do_output()) then
               print *, 'OBS is rejected because corresponding state var is '
               print *, 'not available or 2D Variable(nCells,nVert)'

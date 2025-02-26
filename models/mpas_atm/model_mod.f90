@@ -1115,6 +1115,7 @@ end subroutine find_mpas_dims
 !>       ISTATUS = 17:  Unable to compute pressure values
 !>       ISTATUS = 18:  altitude illegal
 !>       ISTATUS = 19:  could not compute u using RBF code
+!>       ISTATUS = 20:  the variable is either undefined or not on the surface
 !>       ISTATUS = 101: Internal error; reached end of subroutine without
 !>                      finding an applicable case.
 !>       ISTATUS = 201: Reject observation from user specified pressure level
@@ -1313,11 +1314,11 @@ if ( surface_obs .and. ((obs_kind == QTY_TEMPERATURE       ) .or. &
            if (debug > 1 .and. do_output()) then
                print *, 'OBS is rejected because corresponding state var is '
                print *, 'not available or 2D Variable(nCells,nVert)'
-               print *, 'Check variables specified at input.nml'
+               print *, 'Check variables specified at &mpas_vars_nml'
                print *, 'obs_kind, ivar, progvar(ivar)%numvertical', &
                          obs_kind, ivar, progvar(ivar)%numvertical
            endif
-           istatus(:) = 99 ! set 99 for now
+           istatus(:) = 20
            goto 100                                                                        
         end if
 endif  
@@ -1385,11 +1386,11 @@ else if (obs_kind == QTY_VAPOR_MIXING_RATIO      .or. obs_kind == QTY_2M_SPECIFI
           if (debug > 1 .and. do_output()) then
               print *, 'OBS is rejected because corresponding state var is '
               print *, 'not available or 2D Variable(nCells,nVert)'
-              print *, 'Check variables specified at input.nml'
+              print *, 'Check variables specified at &mpas_vars_nml'
               print *, 'obs_kind, tvars(1), progvar(tvars(1))%numvertical', &
                         obs_kind, tvars(1), progvar(tvars(1))%numvertical
           endif
-          istatus(:) = 99 ! set 99 for now
+          istatus(:) = 20
           goto 100                                                                        
        end if
 
@@ -5822,7 +5823,7 @@ endif
 !   if (ival(1)%onHalf /= ival(k)%onHalf)  print error meg and error out
 ! enddo
 
-if ( progvar(ival(1))%numvertical /= 1 ) then  ! compute vertical indice
+if ( progvar(ival(1))%numvertical > 1 ) then  ! compute vertical indice
 ! If the field is on a single level, lower and upper are both 1
     call find_vert_indices (state_handle, ens_size, loc, nc, c, ival(1), lower, upper, fract, ier)
     if(all(ier /= 0)) return

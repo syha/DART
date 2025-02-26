@@ -1296,6 +1296,33 @@ endif
 
 endif !(.not.surface_obs) then
 
+! Update 'obs_kind' for surface variables (U10, V10, T2, and Q2) 
+! since it will try to use 2D data, not surface MPAS 1D data (due to original 'obs_kind')
+if ( surface_obs .and. ((obs_kind == QTY_TEMPERATURE       ) .or. &
+                        (obs_kind == QTY_SPECIFIC_HUMIDITY ) .or. &
+                        (obs_kind == QTY_U_WIND_COMPONENT  ) .or. &
+                        (obs_kind == QTY_V_WIND_COMPONENT  ))      ) then
+        if ( obs_kind == QTY_TEMPERATURE )      obs_kind = QTY_2M_TEMPERATURE
+        if ( obs_kind == QTY_SPECIFIC_HUMIDITY) obs_kind = QTY_2M_SPECIFIC_HUMIDITY
+        if ( obs_kind == QTY_U_WIND_COMPONENT ) obs_kind = QTY_10M_U_WIND_COMPONENT
+        if ( obs_kind == QTY_V_WIND_COMPONENT ) obs_kind = QTY_10M_V_WIND_COMPONENT
+        ivar = get_progvar_index_from_kind(obs_kind) ! update ivar to get surface vars
+
+        ! Reject if state var not exists or has multiple levels
+        if ( ivar < 0 .or. progvar(ivar)%numvertical /= 1) then
+           if (debug > 1 .and. do_output()) then
+               print *, 'OBS is rejected because corresponding state var is '
+               print *, 'not available or 2D Variable(nCells,nVert)'
+               print *, 'Check variables specified at input.nml'
+               print *, 'obs_kind, ivar, progvar(ivar)%numvertical', &
+                         obs_kind, ivar, progvar(ivar)%numvertical
+           endif
+           istatus(:) = 99 ! set 99 for now
+           goto 100                                                                        
+        end if
+endif  
+
+
 ! winds
 if ((obs_kind == QTY_U_WIND_COMPONENT .or. &
      obs_kind == QTY_V_WIND_COMPONENT) .and. has_edge_u .and. use_u_for_wind) then
@@ -1347,9 +1374,43 @@ else if (obs_kind == QTY_VAPOR_MIXING_RATIO      .or. obs_kind == QTY_2M_SPECIFI
          obs_kind == QTY_CLOUDWATER_MIXING_RATIO .or. obs_kind == QTY_RAINWATER_MIXING_RATIO .or. &
          obs_kind == QTY_ICE_MIXING_RATIO        .or. obs_kind == QTY_SNOW_MIXING_RATIO      .or. &
          obs_kind == QTY_GRAUPEL_MIXING_RATIO    .or. obs_kind == QTY_CLOUD_FRACTION       ) then
-   tvars(1) = get_progvar_index_from_kind(obs_kind)
-   call compute_scalar_with_barycentric(state_handle, ens_size, location, 1, tvars(1), values(1,:), istatus)
-   expected_obs = values(1, :)
+
+   ! special case for 2M_VAPOR_MIXING_RATIO for DEWPOINT_2M
+   if (obs_kind == QTY_VAPOR_MIXING_RATIO .and. surface_obs ) then
+       obs_kind = QTY_2M_SPECIFIC_HUMIDITY
+       tvars(1) = get_progvar_index_from_kind(obs_kind)
+
+       ! Reject if state var not exists or has multiple levels
+       if ( tvars(1) < 0 .or. progvar(tvars(1))%numvertical /= 1) then
+          if (debug > 1 .and. do_output()) then
+              print *, 'OBS is rejected because corresponding state var is '
+              print *, 'not available or 2D Variable(nCells,nVert)'
+              print *, 'Check variables specified at input.nml'
+              print *, 'obs_kind, tvars(1), progvar(tvars(1))%numvertical', &
+                        obs_kind, tvars(1), progvar(tvars(1))%numvertical
+          endif
+          istatus(:) = 99 ! set 99 for now
+          goto 100                                                                        
+       end if
+
+       call compute_scalar_with_barycentric(state_handle, ens_size, location, 1, tvars(1), values(1,:), istatus)
+       expected_obs = values(1, :)
+       ! compute vapor mixing ratio, then: vp = sh / (1.0 - sh)
+       do e = 1, ens_size
+          if (istatus(e) == 0) then
+             if (expected_obs(e) >= 0.0_r8) then
+                 expected_obs(e) = expected_obs(e) / (1.0_r8 - expected_obs(e))
+             else
+                 expected_obs(e) = 1.0e-12_r8  
+             endif
+         endif 
+       end do
+
+   else
+       tvars(1) = get_progvar_index_from_kind(obs_kind)
+       call compute_scalar_with_barycentric(state_handle, ens_size, location, 1, tvars(1), values(1,:), istatus)
+       expected_obs = values(1, :)
+   end if
 
    ! Don't accept negative hydrometeors
    do e = 1, ens_size
@@ -2092,43 +2153,27 @@ end subroutine get_init_template_filename
 ! the boundary file variables are fixed by the model and so we
 ! don't allow the user to set them via namelist
 
-subroutine set_lbc_variables(template_filename)
+subroutine set_lbc_variables(template_filename, lbc_variable_list)
 
 character(len=*), intent(in) :: template_filename
+character(len=*), dimension(:), intent(in) :: lbc_variable_list
 
-integer :: ncid
+integer :: ncid, ivar
 
 bdy_template_filename = template_filename
 
-! this initial list always exists.  hardcode them for now,
-! and query to see if the reconstructed winds are there or not.
+MyLoop : do ivar = 1, max_state_variables
 
-lbc_variables(1) = 'lbc_qc'
-lbc_variables(2) = 'lbc_qr'
-lbc_variables(3) = 'lbc_qv'
-lbc_variables(4) = 'lbc_rho'
-lbc_variables(5) = 'lbc_theta'
-lbc_variables(6) = 'lbc_u'
-lbc_variables(7) = 'lbc_w'
-lbc_variables(8) = 'lbc_qi'  ! CSS added elements 8-15 
-lbc_variables(9) = 'lbc_qs'
-lbc_variables(10) = 'lbc_qg'
-lbc_variables(11) = 'lbc_nr'
-lbc_variables(12) = 'lbc_ni'
-lbc_variables(13) = 'lbc_nc'
-lbc_variables(14) = 'lbc_ns'
-lbc_variables(15) = 'lbc_ng'
+   if ( len_trim(lbc_variable_list(ivar)) ==  0 ) exit MyLoop ! if input empty, exit
+   lbc_variables(ivar) = trim(lbc_variable_list(ivar))
 
-ncid = nc_open_file_readonly(template_filename, 'set_lbc_variables')
-if (nc_variable_exists(ncid, 'lbc_ur')) then
-   lbc_variables(8) = 'lbc_ur'  
-   lbc_variables(9) = 'lbc_vr' 
-   lbc_file_has_reconstructed_winds = .true.
-endif
-call nc_close_file(ncid)
+end do MyLoop
+
+  if ( any( lbc_variables == "lbc_ur") .and. any( lbc_variables == "lbc_vr")) then
+     lbc_file_has_reconstructed_winds = .true.
+  end if
 
 end subroutine set_lbc_variables
-
 
 !-------------------------------------------------------------------
 ! modify what static_init_model does.  this *must* be called before
@@ -5777,9 +5822,13 @@ endif
 !   if (ival(1)%onHalf /= ival(k)%onHalf)  print error meg and error out
 ! enddo
 
+if ( progvar(ival(1))%numvertical /= 1 ) then  ! compute vertical indice
 ! If the field is on a single level, lower and upper are both 1
-call find_vert_indices (state_handle, ens_size, loc, nc, c, ival(1), lower, upper, fract, ier)
-if(all(ier /= 0)) return
+    call find_vert_indices (state_handle, ens_size, loc, nc, c, ival(1), lower, upper, fract, ier)
+    if(all(ier /= 0)) return
+else
+   ier(:) = 0 !  numvertical = 1 ; no need to compute vert_indice
+end if
 
 ! for each field to compute at this location:
 do k=1, n

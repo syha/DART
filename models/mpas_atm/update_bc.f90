@@ -14,7 +14,7 @@ program update_bc
 !         The update_bc_nml namelist defines the input and output file
 !         name lists for all ensemble members.
 !         The input list should be matched with output_state_file_list in &filter_nml.
-!         
+!
 ! author: Soyoung Ha 23 Aug 16
 !         Updated in  4 May 2017 for the Manhatten release
 !         Updated in 28 Jul 2020 for checking dimension sizes in analysis and lbc files.
@@ -37,7 +37,7 @@ use state_structure_mod, only : get_num_variables, get_domain_size
 
 use netcdf_utilities_mod, only : nc_open_file_readonly, &
                                  nc_open_file_readwrite, &
-                                 nc_get_dimension_size,   &
+                                 nc_get_dimension_size,   &   ! Ha
                                  nc_close_file
 
 use netcdf
@@ -56,12 +56,15 @@ character(len=*), parameter :: revdate  = ''
 character(len=256)  :: update_analysis_file_list = 'filter_in.txt'
 character(len=256)  :: update_boundary_file_list = 'boundary_inout.txt'
 integer             :: debug = 0
-logical             :: lbc_update_from_reconstructed_winds = .true.
-logical             :: lbc_update_winds_from_increments    = .true.
-
+logical             :: lbc_update_from_reconstructed_winds = .false.
+logical             :: lbc_update_winds_from_increments    = .false.
+integer, parameter :: max_lbc_variables = 80
+character(len=NF90_MAX_NAME) :: mpas_lbc_variables(max_lbc_variables) = ' '
 
 namelist /update_bc_nml/ update_analysis_file_list, update_boundary_file_list, debug, &
-                         lbc_update_from_reconstructed_winds, lbc_update_winds_from_increments
+! These namelist variables are left for backward compatibility. Uncomment them to use this option.
+!                        lbc_update_from_reconstructed_winds, lbc_update_winds_from_increments, &
+                         mpas_lbc_variables
 
 !----------------------------------------------------------------------
 character (len=256)   :: next_infile, next_outfile
@@ -83,7 +86,7 @@ integer :: nVertLevelsB = -1  ! Total number of levels in ncBdyID
 
 call initialize_utilities(progname='update_bc')
 
-! Read the namelist to get the input filename. 
+! Read the namelist to get the input filename.
 
 call find_namelist_in_file("input.nml", "update_bc_nml", iunit)
 read(iunit, nml = update_bc_nml, iostat = io)
@@ -99,7 +102,7 @@ bdy_template_filename = get_next_filename(update_boundary_file_list, 1)
 
 ! Note that force_u_into_state should be called before static_init_model, which is unusual.
 call force_u_into_state()
-call set_lbc_variables(bdy_template_filename)
+call set_lbc_variables(bdy_template_filename, mpas_lbc_variables)
 
 call static_init_model()
 call get_init_template_filename(static_filename)
@@ -116,7 +119,7 @@ write(*,*)
 write(*,*) 'update_bc: Updating ',nbdyvars,' variables'
 
 !----------------------------------------------------------------------
-! Reads lists of input mpas (prior) and filter (analysis) files 
+! Reads lists of input mpas (prior) and filter (analysis) files
 !----------------------------------------------------------------------
 filenum = 1
 fileloop: do        ! until out of files
@@ -127,7 +130,7 @@ fileloop: do        ! until out of files
   if (next_infile == '' .or. next_outfile == '') exit fileloop
 
   !----------------------------------------------------------------------
-  ! Reads input lbc (prior) and filter (analysis) files 
+  ! Reads input lbc (prior) and filter (analysis) files
   !----------------------------------------------------------------------
 
   ncAnlID = nc_open_file_readonly(next_infile,  'update_bc - open readonly')
@@ -142,10 +145,11 @@ fileloop: do        ! until out of files
   call print_time(model_time,'mpas current time')
 
   if ( model_time /= state_time ) then
-   call print_time(state_time,'DART current time',logfileunit)
-   call print_time(model_time,'mpas current time',logfileunit)
-   write(string1,*) trim(next_infile),' current time must equal model time'
-   call error_handler(E_ERR,'update_bc',string1,source,revision,revdate)
+   call print_time(state_time,'DART analysis current time',logfileunit)
+   call print_time(model_time,'mpas lbc      current time',logfileunit)
+   model_time = state_time     ! NSSL since we do not have lbc file in no-zero minutes past hour
+   !write(string1,*) trim(next_infile),' current time must equal model time'
+   !call error_handler(E_ERR,'update_bc',string1,source,revision,revdate)
   endif
 
   !----------------------------------------------------------------------

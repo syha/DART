@@ -249,8 +249,11 @@
                              '../../../observations/forward_operators/obs_def_gps_mod.f90',
                              '../../../observations/forward_operators/obs_def_vortex_mod.f90', 
                              '../../../observations/forward_operators/obs_def_rel_humidity_mod.f90', 
+                             '../../../observations/forward_operators/obs_def_radar_mod.f90',
+                             '../../../observations/forward_operators/obs_def_cwp_mod.f90',
                              '../../../observations/forward_operators/obs_def_dew_point_mod.f90'
-   quantity_files          = '../../../assimilation_code/modules/observations/atmosphere_quantities_mod.f90'
+   quantity_files          = '../../../assimilation_code/modules/observations/atmosphere_quantities_mod.f90',
+                             '../../../assimilation_code/modules/observations/default_quantities_mod.f90'
   /
 
 &obs_sequence_tool_nml

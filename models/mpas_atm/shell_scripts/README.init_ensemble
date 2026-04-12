@@ -1,36 +1,83 @@
-# How to create a global initial ensemble from a single GFS analysis.
-# Soyoung Ha (MMM/NCAR) Feb-2020
+# README.init_ensemble for MPAS-DART Ensemble Initialization
 
-1. Run WPS/ungrib.exe over the GFS analysis (ds084.1)
-   => GFS:YYYY-MM-DD_HH
+---
 
-2. Run MPAS/init_atmosphere (three times)
-   => grid.nc, graph.info
-   => static.nc
-   => init.nc
+## Overview
 
-3. Run DART/models/mpas_atm/work/filter with 
-   input_state_file_list    = 'filter_in.txt'
-   output_state_file_list   = 'filter_out.txt'
+This documentation provides guidance for creating initial ensembles for MPAS-DART cycling.
+For regional ensemble creation, see [README.regional](README.regional).
 
-   (Check README and README.pert_ics on how to run it.)
+Two methods are described:
+- **Method 1:** Create an ensemble by perturbing a single MPAS file.
+- **Method 2:** Link to an existing MPAS ensemble.
 
-   filter_in.txt has a single line as
-   member1/init.nc 
-   (which is copied from init.nc in step 2).
+---
 
-   filter_out.txt looks like
-   member1/analysis.nc
-   member2/analysis.nc
-   ... (as many members as ens_size; one per line for each member)
+### Method 1: Creating an initial ensemble by perturbing a single MPAS file
 
-4. Run DART/models/mpas_atm/work/update_mpas_states with an updated filter_in.txt.
-   First, copy init.nc from step 2 to each member directory.
-   Then edit filter_in.txt with all the members listed as below.
-   member1/init.nc
-   member2/init.nc
-   ...
-   => These init.nc files are now updated with perturbed states in analysis.nc for each member.
+## Step 1. Create an MPAS initial file (`init.nc`) from a single GFS analysis
 
-5. Run MPAS/atmosphere_model up to the initial cycle time in each member directory.
-   You might want to recenter the ensemble mean at the initial cycle before you get the cycling started.
+Use the following script in `models/mpas_atm/shell_scripts`:
+` - `init_mpas_grib.csh`
+
+Or follow these steps manually:
+
+1. **Run WPS/ungrib.exe** over the GFS analysis (ds084.1):
+   - Output: `GFS:YYYY-MM-DD_HH`
+
+2. **Run MPAS/init_atmosphere** (three times):
+   - Outputs: `grid.nc`, `graph.info`, `static.nc`, `init.nc`
+
+3. **Run MPAS/atmosphere_model** up to the initial cycle time in each member directory.
+   - You may want to recenter the ensemble mean at the initial cycle before starting cycling.
+
+## Step 2. Perturb the single MPAS File using `filter` in DART
+
+Perturb the MPAS file created in Step 1 to generate an ensemble using the DART `filter` program.
+Set the following parameters in `input.nml`:
+
+```fortran
+&filter_nml
+  perturb_from_single_instance = .true.
+  input_state_file_list    = 'filter_in.txt'
+  output_state_file_list   = 'filter_out.txt'
+
+&model_nml
+  model_perturbation_amplitude = 0.0001  ! set a small but non-zero value
+```
+
+
+To use a single observation or a small set of observations, set in `&filter_nml`:
+
+```fortran
+obs_sequence_in_name = 'obs_seq.1obs'
+```
+
+The observation time in the obs sequence file must match the model time in the MPAS file listed in `filter_in.txt`.
+
+Run `filter` to generate N perturbed ensemble members as listed in `filter_out.txt`.
+
+
+**File list formats:**
+
+`filter_in.txt` contains a single line pointing to the MPAS file from Step 1:
+init.nc
+`filter_out.txt` lists one output file per ensemble member (total lines = `ens_size`):
+member1/init.nc
+member2/init.nc
+
+
+### Method 2: Linking to an existing MPAS ensemble
+
+If you already have an ensemble of MPAS files, use the following scripts in
+`models/mpas_atm/shell_scripts`:
+
+  - `driver_initial_ens.csh`
+
+
+## Contact
+
+For more details or questions, contact:
+
+- Soyoung Ha (syha@ucar.edu)
+- dart@ucar.edu

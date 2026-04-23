@@ -72,7 +72,7 @@ member2/init.nc
 If you already have an ensemble of MPAS files, use the following scripts in
 `models/mpas_atm/shell_scripts`:
 
-  - `driver_initial_ens.csh`
+  - `driver_init_ens.csh`
 
 
 ## Contact

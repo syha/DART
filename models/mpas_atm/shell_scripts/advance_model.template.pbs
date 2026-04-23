@@ -1,0 +1,29 @@
+#!/bin/csh
+#==================================================================
+# advance_model.pbs
+#==================================================================
+#PBS -N JOB_NAME
+#PBS -A PROJ_NUMBER
+#PBS -o logs/JOB_NAME.log
+#PBS -j oe
+#PBS -q main 
+#PBS -l job_priority=QUEUE
+#PBS -l select=NODES:mpiprocs=NPROC:ncpus=NCPUS:mem=230GB
+#PBS -l walltime=JOB_TIME
+#==================================================================
+date
+set myname = $0     # this is the name of this script
+set start_time = `date +%s`
+echo "host is " `hostname`
+
+#  copy files to appropriate location
+#echo $start_time >&! logs/start_memberENS_MEM
+
+#  integrate the model forward in time
+./advance_model.csh ENS_MEM ENS_MEM
+
+date
+
+set end_time = `date  +%s`
+@ length_time = $end_time - $start_time
+echo "duration_sec = $length_time"

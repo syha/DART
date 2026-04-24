@@ -111,7 +111,7 @@ set GRID_DIR     = ${ROOT_DIR}/mesh		# MPAS mesh files like static.nc and graph.
 set INIT_DIR     = ${ROOT_DIR}/init             # MPAS initial ensemble under each member dir.
 set LBC_DIR      = ${ROOT_DIR}/LBC              # source dir for LBC files, which will be copied to each member dir.
 set SST_DIR      = ${ROOT_DIR}/sst		# only if sfc_update.nc will be used. Not tested yet.
-set WPS_DIR      = ${ROOT_DIR}/WPS		# only if init_mpas_grib.csh will be called to ungrib analysis.
+set WPS_DIR      = ${ROOT_DIR}/WPS		# to ungrib analysis to create IC or LBC files (and for init_mpas_grib.csh).
 
 # Run directory for this experiment
 set EXPN_DIR     = ${ROOT_DIR}/${EXPERIMENT_NAME}

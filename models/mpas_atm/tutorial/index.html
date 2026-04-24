@@ -145,7 +145,6 @@ We'll then compile the executables associated with the Lorenz 1996 model (<em cl
 and run some simple tests to verify things are working.  Then we'll do the same with the 
 MPAS Atmospheric model (<em class="terminal">mpas_atm</em>). 
 </p>
-</div>
 
 <!-- ============================================================================== -->
 <div class="subheader" onClick="show('downloading')">
@@ -380,6 +379,8 @@ $ ./filter
 The programs should run to completion without error.  If so, you are ready to
 move on to compiling and running the MPAS/DART version of the programs.
 </p>
+
+</div>
 
 </div>
 
@@ -1296,9 +1297,6 @@ https://rda.ucar.edu/datasets/ds084.1/</a>
 
 </div>
 
-</div>
-
-
 <!-- ============================================================================== -->
 <div class="subheader" onClick="show('obs-pre')">
 <h3>4.3 Observation Preprocessing and Preparation</h3>
@@ -1747,6 +1745,8 @@ The script takes 2 arguments:
 
 </div>
 
+</div>
+
 <!-- ============================================================================== -->
 <!-- ============================================================================== -->
 <div class="header" onClick="show('diags')">
@@ -1765,7 +1765,7 @@ for more details.
 </p>
 
 <p>
-For this tutorial, the <em class="terminal">run_obs_diag.csh</em> can be employed to create diagnostics netCDF file for each cycle. The <em class="terminal">ob_diag</em> program is a generic executable to compute observation-space diagnostics from ASCII obs_seq file. This will create a netCDF file using the <em class="terminal">obs_seq.final</em> file (located at <em class="terminal">${OUTPUT_DIR}</em>), which is the output of the filter job. 
+For this tutorial, the <em class="terminal">run_obs_diag.csh</em> can be employed to create diagnostics netCDF file for each cycle. The <em class="terminal">ob_diag</em> program is a generic executable to compute observation-space diagnostics from ASCII obs_seq file. This will create a netCDF file using the <em class="terminal">obs_seq.final</em> file, which is the output of the filter job. 
 The shell script is designed to compute diagnostics for five preselected domains (GLOBAL, NH, SH, TR, and CONUS).
 
 <p>
@@ -1956,20 +1956,10 @@ https://downloads.unidata.ucar.edu/netcdf/</a>
 
 <div id="using_da_state" class="subsection">
  <p>
- This tutorial material was also tested with the MPAS outputs from 'da_state' from <em class="terminal">streams.atmosphere</em>. This capability is available after the public MPAS v8.2.0 release and it is intended to reduce the size of MPAS outputs for DA. It basically only output variables related to the DA step and the other static data which is required to run the model are read from the file placed at 'invariant' stream of <em class="terminal">streams.atmosphere</em>. For example, the initial condition file <em class="terminal">init.nc</em> can be employed for this role.
-
+ This tutorial material was also tested using the <em class="terminal">da_state</em> stream defined in <em class="terminal">streams.atmosphere</em>, rather than the full restart stream. Available since the public MPAS v8.2.0 release, this capability reduces the size of MPAS outputs needed for data assimilation. It writes only the variables involved in the DA step, while the static fields required to run the model are read separately from the file specified in the <em class="terminal">invariant</em> stream of <em class="terminal">streams.atmosphere</em> — for example, the initial condition file <em class="terminal">init.nc</em>.
  <p>
- For example, you may see those file size difference for ~240 km global domain.
 
- <pre class="terminal">
- # restart
- -rw-r--r-- 1 syha ncar 224M Nov 27 16:56 output/2019050100/member01/restart.2019-05-01_00.00.00.nc
- # da_state
- -rw-r--r-- 1 syha ncar  52M Dec  7 14:19 output/2019050100/member01/mpasout.2019-05-01_00.00.00.nc
- </pre>
-
- <p>
- To try this capability, you may need to use newer <em class="terminal">streams.atmosphere</em> template and need to change <em class="terminal">$USE_RESTART</em> as <b>false</b> at <em class="terminal">setup.csh</em>. This is already included in the case of regional MPAS-DART tutorial templates (see <em class="terminal">${TEMPLATE_DIR}/streams.atmosphere.new</em>).
+ To try this capability, you may need to use <em class="terminal">streams.atmosphere</em> from MPASV8+ and need to change <em class="terminal">$USE_RESTART</em> as <b>false</b> in <em class="terminal">setup.csh</em>. 
 
 </div>
 

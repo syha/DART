@@ -4,6 +4,8 @@
 #
 # DART $Id$
 
+As of April-2026, MPAS-DART tutorial can be found in https://syha.github.io/DART/models/mpas_atm/tutorial 
+
 This directory contains the interface code and the shell scripts to
 run the MPAS-ATM atmospheric model with DART ensemble data assimilation.
 

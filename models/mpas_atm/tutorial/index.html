@@ -858,7 +858,7 @@ For an MPAS-DART run, the namelist &amp;model_nml controls the MPAS-specific set
 
 <p>
 Here is a diagram for the assimilation options for horizontal wind observations.
-<img src="MPAS_WindDA_options.png" style="height:700px; width:1000px">
+<img src="images/MPAS_WindDA_options.png" style="height:700px; width:1000px">
 </p>
 </div>
 
@@ -894,7 +894,7 @@ and <em class="terminal">&mpas_vars_nml</em> for their MPAS-specific configurati
 Here is a workflow of the MPAS/DART system.
 </p>
 <p>
-<img src="Cycling_workflow.png" style="height:500px; width:800px">
+<img src="images/Cycling_workflow.png" style="height:500px; width:800px">
 </p>
 
 <p>
@@ -1142,28 +1142,16 @@ $ md5sum sample.tar.gz
 $ tar -xzf sample.tar.gz
 </pre>
 
-<p>
-Please cite the dataset if you use it in publications: <em>Ha, S. (2026). MPAS-DART Tutorial dataset. Zenodo. <a href="https://doi.org/10.5281/zenodo.19743419" target="_blank">https://doi.org/10.5281/zenodo.19743419</a></em>.
-<p>
 This includes:
 <ul>
-<li>observation sequence files for 3 days
-<li>template and static data
+<li>observation sequence files for 3 cycles
+<li>MPAS mesh files (grid, static, and graph files)
+<li>MPAS initial ensemble files for 3 members
+<li>MPAS lateral boundary condition ensemble files for 3 members
 </ul>
 
 <p>
-Unlike global tutorial data, this does not include MPAS-A IC/LBC data at all. This is mainly because of dependencies on the external data in the case of regional MPAS-A for LBC (external data takes more space than ~60km regional MPAS-A).
-<p>
-
-<p>
-After placing the .tgz file in the tutorial script directory, you should see the following files. The figure below illustrates the role of each script and provides a brief flowchart for the tutorial.
-<img src="TUTORIAL_FLOWCHART.png">
-
-<p>
-You may see some scripts in blue outline which have updated for regional MPAS-A applications. This is different from the one in the global tutorial and they include steps for LBC generation, updating LBC with analysis state.
-
-<p>
-First, you need to modify <em class="terminal">setup.csh</em> to prepare tutorial experiments. Please modify the following variables based on your working environment.
+First, you need to edit <em class="terminal">setup.csh</em> to prepare tutorial experiments. Please modify the following variables based on your working environment.
 
 <p>
 You may search word <b>'Change'</b> in the script and modify them according to your own environment.

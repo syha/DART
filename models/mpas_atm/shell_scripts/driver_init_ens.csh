@@ -10,7 +10,7 @@
 # 
 # Soyoung Ha (MMM/NCAR)
 #
-#set echo
+set echo
 
 if ( $#argv >= 1 ) then
    set fn_param = ${1}
@@ -21,15 +21,12 @@ source ${fn_param}
 
 # Check if this cycling experiment is run in restart or non-restart mode.
 if ( $USE_RESTART == true ) then
-	echo "$EXPERIMENT_NAME is cycled in restart mode."
+	echo $EXPERIMENT_NAME is cycled in restart mode.
 else
-	echo "$EXPERIMENT_NAME is cycled in non-restart mode."
-	#non-restart mode with two input files (invariant.nc and init.TIME.nc) and da_stream as output."
-	# Since MPAS V8.3+, invariant.nc is no longer needed.
+	echo $EXPERIMENT_NAME is cycled in non-restart mode with two input files (invariant.nc and init.TIME.nc).
 endif
 
 # Derive 12-digit YYYYMMDDHHMM timestamp (works for both hourly and sub-hourly)
-set time_wrf = `echo $DATE_INI 0 -w | $EXE_DIR/advance_time`	# YYYY-MM-DD_HH:MM:SS
 set time_ini = `echo $DATE_INI 0 -w | $EXE_DIR/advance_time | sed 's/[^0-9]//g' | cut -c1-12`
 
 echo '#################################################'
@@ -41,18 +38,17 @@ cd $RUN_DIR
 
 # Prepare necessary input files, first.
 foreach f ( input.nml streams.atmosphere )
-
-  ls -l $f
-  if ( ! $status == 0 ) then
-     echo ABORT\: $f not found. You may want to run driver_mpas_dart.csh, first.
-     exit
-  endif
+  if (! -e $f ) cp -p ${RUN_DIR}/$f .
 end
+ls -l  input.nml streams.atmosphere
+if ( ! $status == 0 ) then
+     echo ABORT\: Run driver_mpas_dart.csh to have input.nml and streams.atmosphere ready for $0.
+     exit
+endif
 
 # Check the file names for the MPAS model and the file lists for DART/filter.
 set fini = `sed -n '/<immutable_stream name=\"input\"/,/\/>/{/Scree/{p;n};/##/{q};p}' streams.atmosphere | \
-            grep filename_template | awk -F= '{print $2}' | sed -e 's/"//g' | cut -d . -f1`
-set f_nc = ${fini}.`echo ${time_wrf} | sed -e 's/:/\./g'`.nc
+            grep filename_template | awk -F= '{print $2}' | sed -e 's/"//g'`
 
 set  input_list = `grep input_state_file_list  input.nml | awk '{print $3}' | cut -d ',' -f1 | sed -e "s/'//g" | sed -e 's/"//g'`
 
@@ -61,53 +57,37 @@ echo "Creating ${input_list} for a list of input files"
 touch ${input_list}
 
 # If an initial ensemble already exists, simply link to it.
-echo "Check $INIT_DIR/${ENS_DIR}*/${F_INIT}" first.
-if ( -e $INIT_DIR/${ENS_DIR}1 ) then
+echo Check $INIT_DIR/${ENS_DIR}*/${INIT_FNAME} first.
+set nens = `ls -1 $INIT_DIR/${ENS_DIR}*/${INIT_FNAME} | wc -l`	
+if ( $nens >= $ENS_SIZE ) then
 
-  set  nens = `ls -1 $INIT_DIR/${ENS_DIR}*/${F_INIT} | wc -l`	
+   echo "An initial ensemble is found."
+   echo "Copy them in each member directory (to be overwritten by DA)."
 
-  if ( $nens >= $ENS_SIZE ) then
+   set n = 1
+   while ( $n <= $ENS_SIZE )
 
-     echo "An initial ensemble is found."
-     echo "Copy them in each member directory (to be overwritten by DA)."
+     set finput = ${ENS_DIR}${n}/$fini
 
-     set n = 1
-     while ( $n <= $ENS_SIZE )
+     if ( ! -d ${ENS_DIR}${n} ) mkdir ${ENS_DIR}${n}
 
-       set finput = ${ENS_DIR}${n}/$f_nc
+     set num = `printf "%02d" $n` # two-digit integer like 01, 02, 03, ...
 
-       if ( ! -d ${ENS_DIR}${n} ) mkdir ${ENS_DIR}${n}
+     ls -l ${INIT_DIR}/${ENS_DIR}${num}/${INIT_FNAME}		        || exit
+     ${COPY} ${INIT_DIR}/${ENS_DIR}${num}/${INIT_FNAME} ${finput}	|| exit
 
-       #set num = `printf "%02d" $n` # two-digit integer like 01, 02, 03, ...
+     echo ${finput} >> ${input_list}
 
-       ls -l ${INIT_DIR}/${ENS_DIR}${n}/${F_INIT}		        || exit
-       ${COPY} ${INIT_DIR}/${ENS_DIR}${n}/${F_INIT} ${finput}	|| exit
+     @ n++
 
-       echo ${finput} >> ${input_list}
-  
-       @ n++
-
-     end
-
-     ls -l ${input_list}	|| exit
-     echo
-
-  else
-
-     echo Only ${nens} initial ensemble files are found. Stop.
-     exit
-
-  endif #( $nens >= $ENS_SIZE )
+   end
 
 else
 
-   echo "An initial ensemble should be generated from scratch."
-   echo "Run init_mpas_grib.csh using WPS and MPAS/init_atmosphere."
+   echo An initial ensemble should be generated from scratch. 
+   echo Run init_mpas_grib.csh using WPS and MPAS/init_atmosphere.
 
    # If $GRIB_DATA supports ensemble data, loop over the members (instead of 1) below.
-   echo "Run init_mpas_grib.csh 1 ${fn_param}"
-   ${CSH_DIR}/init_mpas_grib.csh 1 ${fn_param}	
+   ./init_mpas_grib.csh 1 ${fn_param}	
 
 endif
-echo "driver_init_ens.csh is done."
-echo

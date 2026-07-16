@@ -7,6 +7,20 @@
 #
 # Soyoung Ha  MMM/NCAR Feb-2020
 
+0. In MPASV8x, uReconstructZonal, vReconstructMeridional, and refl10cm are not included in the restart stream (under <stream name="restart" in MPAS/src/core_atmosphere/Registry.xml) by default. Therefore, if you want to run cycling in restart mode, you should add these lines for the assimilation of horizontal winds, as below. 
+
+                <stream name="restart" 
+...
+                        <var name="u_init"/>
++                       <var name="uReconstructZonal"/>
++                       <var name="uReconstructMeridional"/>
+
+ For radar DA, you should also add the line below within the restart stream.
++                       <var name="refl10cm"/>
+
+ After modifying Registry.xml as above, you must RECOMPLIE your mpas codes (after 'make clean').
+ But if you are running cycling in non-restart mode, these fields are already included in the section for <stream name="da_state", so you don't need to do anything special in the model.
+
 1. Create a regional grid and a graph file (from a global MPAS grid.nc)
    git clone https://github.com/MiCurry/MPAS-Limited-Area
    Edit points.txt for the regional mesh you want to define

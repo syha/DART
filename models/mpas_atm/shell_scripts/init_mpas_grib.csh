@@ -27,16 +27,16 @@
 
   # Set nnode/nproc for the init forecast may differ from cycling runs.
   # Adjust these and ensure graph.info.$(nnode*nproc) exists in GRID_DIR.
-  set nnode = 1		# $MODEL_NODES
-  set nproc = 128	# $N_PROCS_MPAS
+  set nnode = 4
+  set nproc = 128
+  @ ndecomp = $nnode * $nproc
+  if ( ! -e ${RUN_DIR}/${F_GRAPH}.${ndecomp} ) then
+       echo "ABORT: Missing graph partition file for ${ndecomp} procs: ${F_GRAPH}.${ndecomp}"
+       exit 1
+  endif
   #=====================================================================================
   # End User-defined parameters
   #=====================================================================================
-
-  # MPAS mesh graph info
-  @ ndecomp = $nnode * $nproc
-  set f_graph = ${F_GRAPH}.${ndecomp}
-  set fgraph = `basename $f_graph`
 
   # advance_time executable is needed to update time info below.
   if ( -x ${RUN_DIR}/advance_time ) then
@@ -62,7 +62,7 @@
   #  Determine the initial, final and run times for the MPAS integration
   set fcst_hrs = `echo "$INIT_ENS_FCST_HRS / 1" | bc`   # integer truncation
   set init_utc = `echo $DATE_INI -${fcst_hrs}h -w | ./advance_time`
-  set targ_utc = `echo $DATE_INI 0             -w | ./advance_time`
+  set targ_utc = `echo $DATE_INI 0              -w | ./advance_time`
 
   # Parse date components from ISO init_utc (YYYY-MM-DD_HH:MM:SS)
   set YYYY = `echo $init_utc | cut -c1-4`
@@ -78,31 +78,15 @@
   set fhours   = `echo "$fcst_hrs % 24" | bc`
   set intv_utc = `printf "%02d_%02d:00:00" $fdays $fhours`
 
-  if ( ! -e ${fgraph} ) then
-       if ( -e ${GRID_DIR}/${f_graph} ) then
-	       ${LINK} ${GRID_DIR}/${f_graph} ${fgraph}         || exit
-       else
-         if ( -e ${RUN_DIR}/${f_graph} ) then
-		 ${LINK} ${RUN_DIR}/${f_graph} ${fgraph}         || exit
-         else
-             echo "ABORT: Cannot find ${fgraph} for n_mpas * n_proc (= $nnode * $nproc)"
-             exit 1
-       endif
-  endif
-
   echo '========================================================================'
   echo  Run init_mpas_grib.csh to construct an initial ensemble at ${targ_utc}.
-  echo '========================================================================'
-
-  if ( ! -e $fgrib ) then
-
   echo '========================================================================'
   echo  Step 1. Run WPS/ungrib.exe over ${GRIB_DATA} to create ${fgrib}.
   echo '========================================================================'
 
-  ${LINK} ${DATA_DIR}/${VTABLE} Vtable       	    || exit 1
-  ${LINK} ${WPS_DIR}/ungrib.exe .           	    || exit 1
-  ${LINK} ${WPS_DIR}/link_grib.csh .                || exit 1
+  ${LINK} ${VTABLE} Vtable       	    || exit 1
+  ${LINK} ${WPS_DIR}/ungrib.exe .           || exit 1
+  ${LINK} ${WPS_DIR}/link_grib.csh .        || exit 1
 
   # Construct the GRIB source path from FGRIB_FORMAT in setup.csh.
   set grib_src = `echo $FGRIB_FORMAT | sed "s/YYYYMMDDHH/${grib_utc}/"`
@@ -114,7 +98,7 @@
  max_dom = 1,
  start_date = '${init_utc}',
  end_date   = '${init_utc}',
- interval_seconds = 10800
+ interval_seconds = 0
 /
 
 &geogrid
@@ -132,8 +116,6 @@ EOF
 
   ./ungrib.exe   || exit 1
   ls -l $fgrib   || exit 1
-  endif # ( -e $fgrib ) then
-
 
   echo '========================================================================'
   echo  Step 2. Run MPAS/init_atmosphere to create init.nc from ${GRIB_DATA}:${init_utc}.
@@ -141,32 +123,38 @@ EOF
 
   # Configuration files for MPAS/init_atmosphere
   # Add ${MPAS_LEVEL_TXT} in $flist if config_nvertlevels != 55.
-  ${COPY} ${DATA_DIR}/${STREAM_INIT} .   || exit 1
+  foreach fn ( ${STREAM_INIT} ${NML_INIT} )
+    set f = `basename $fn`
+    if ( ! -r ${f} || -z $f ) then
+       ${COPY} ${DATA_DIR}/${fn} .   || exit 1
+    endif
+  end
 
-  # FIXME: static.nc should be prepared using the same MPAS version in advance.
+  # static.nc should be prepared in advance.
   set statfile = `sed -n '/\"input\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${STREAM_INIT} | \
                   grep filename_template | awk -F\" '{print $(NF-1)}'`
-  if ( ! -r ${GRID_DIR}/${F_STATIC} ) then
-     echo "ABORT: Static file not found: ${GRID_DIR}/${F_STATIC}"
-     exit 1
-  endif
   if ( "${statfile}" == "" ) then
      echo "ABORT: Could not parse static input filename from ${STREAM_INIT}."
      exit 1
   endif
-  ${LINK} ${GRID_DIR}/${F_STATIC} ${statfile}   || exit 1
+  if ( ! -r ${GRID_DIR}/${statfile} ) then
+     echo "ABORT: Static file not found: ${GRID_DIR}/${statfile}"
+     exit 1
+  endif
+  ${LINK} ${GRID_DIR}/${statfile} .   || exit 1
 
   # Get the executables and necessary files from RUN_DIR
   foreach fn ( atmosphere_model init_atmosphere_model )
-     if ( ! -x ${MPAS_DIR}/${fn} ) then
-        echo "ABORT: Cannot find executable ${MPAS_DIR}/${fn}"
+     if ( ! -x ${RUN_DIR}/${fn} ) then
+        echo "ABORT: Cannot find executable ${RUN_DIR}/${fn}"
         exit 1
      endif
-     ${LINK} ${MPAS_DIR}/${fn} .   || exit 1
+     ${LINK} ${RUN_DIR}/${fn} .   || exit 1
   end
-  ${LINK} ${MPAS_DIR}/stream_list.*   .   || exit 1
-  ${LINK} ${MPAS_DIR}/*BL       .   || exit 1
-  ${LINK} ${MPAS_DIR}/*DATA     .   || exit 1
+  ${LINK} ${RUN_DIR}/stream*   .   || exit 1
+  ${LINK} ${RUN_DIR}/*BL       .   || exit 1
+  ${LINK} ${RUN_DIR}/*DATA     .   || exit 1
+  ${LINK} ${RUN_DIR}/*graph*   .   || exit 1
 
   # Update time and ungrib filename in namelist.init_atmosphere.
   # All other parameters should be properly edited before running this script.
@@ -196,7 +184,7 @@ EOF
 
   if ( $RUN_IN_PBS == yes ) then
 
-    set jobname = init_atm_mem${ensemble_member}
+    set jobname = init_atm_ens${ensemble_member}
 
     cat >! run_init.pbs << EOF
 #!/bin/tcsh
@@ -207,7 +195,7 @@ EOF
 #PBS -j oe
 #PBS -q main
 #PBS -l job_priority=economy
-#PBS -l select=1:mpiprocs=${N_PROCS_MPAS}:ncpus=${N_CPUS}
+#PBS -l select=1:mpiprocs=${N_PROCS_MPAS}:ncpus=${N_CPUS}:mem=230GB
 #PBS -l walltime=${TIME_MPAS}
 #==================================================================
 ${MPICMD} ./init_atmosphere_model
@@ -230,7 +218,6 @@ EOF
   endif # ( $RUN_IN_PBS == yes )
 
   ls -l $fini   || exit 1
-
 
   echo '========================================================================'
   echo  Step 3. Run MPAS/atmosphere to produce ensemble forecasts for ${fcst_hrs} hrs.
@@ -262,7 +249,7 @@ EOF
   ${COPY} ${RUN_DIR}/${STREAM_ATM} streams.atmosphere   || exit 1
 
   # Change output_interval for the long init ensemble forecast.
-  # restart, history, da_state are printed at the same interval, 
+  # restart, history, da_state are printed at the same interval,
   # diagnostics is output more often to check the ensemble spread change in time later.
   sed -i -f - streams.atmosphere << EOF
 /immutable_stream name="da_state"/,/\/>/ s|output_interval="[^"]*"|output_interval="${intv_utc}"|
@@ -271,17 +258,9 @@ EOF
 /<stream name="diagnostics"/,/\/>/ s|output_interval="[^"]*"|output_interval="${intv_diag}"|
 EOF
 
-  # Some MPAS versions required the invariant stream.
-  set if_invariant_defined = `grep invariant ${STREAM_ATM} | wc -l`
-  if (${if_invariant_defined} > 0) then
-      set finv = `sed -n '/<immutable_stream name=\"invariant\"/,/\/>/{/Scree/{p;n};/##/{q};p}' streams.atmosphere |
-              grep filename_template | awk -F= '{print $2}' | sed -e 's/"//g'`
-      ${LINK} $fini $finv
-  endif
-
   if ( $RUN_IN_PBS == yes ) then
 
-    set jobname = atm_mem${ensemble_member}
+    set jobname = atm_ens${ensemble_member}
 
     # Clean out any stale log files before submission
     if ( -e log.0000.out ) ${REMOVE} log.*
@@ -334,5 +313,5 @@ EOF
   #  if ( $rfile != $fout ) ${REMOVE} $rfile
   #end
 
-  echo "init_mpas_grib.csh done for member ${ensemble_member} to produce ${fout}"
+  echo "init_mpas_grib.csh done for member ${ensemble_member}: ${fout}"
   cd $RUN_DIR

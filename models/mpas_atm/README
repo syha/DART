@@ -28,10 +28,6 @@ for more details.
 Here are more details on how the information in the input and output
 files are handled in a cycling experiment.
 
-Very many thanks to Soyoung Ha (NCAR/MMM) and Ryan Torn (U Albany) for 
-developing and documenting these scripts.
-
-
 "filter_in.txt" : member1/restart.nc
        |          member2/restart.nc
        |
@@ -57,3 +53,12 @@ developing and documenting these scripts.
        V
 advance_model.csh ensemble_member_number
 
+
+Note (as of April-2026):
+
+1. For non-restart cycling, restart.nc is replaced with init.nc for input and mpasout.nc for output.
+Input and output MPAS filenames are defined in streams.atmosphere, with time info included 
+(ex. init.$Y-$M-$D_$h.$m.$s.nc)
+2. `driver_mpas_dart.csh` is provided in `models/mpas_atm/shell_scripts` for cycling runs.
+3. For regional cycling, update_bc is called before advance_model.csh. 
+   You may consider to submit update_bc as batch job (in driver_mpas_dart.csh) to avoid memory issues.

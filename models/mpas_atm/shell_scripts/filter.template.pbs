@@ -19,8 +19,8 @@ echo "host is " `hostname`
 
 if ( -e filter_done ) \rm -f filter_done
 
-# module purge
-module load ncarenv/24.12 craype/2.7.31 intel/2024.2.1 ncarcompilers/1.0.0 cray-mpich/8.1.29 netcdf/4.9.2 
+# module setup, if needed.
+#module load ncarenv/24.12 craype/2.7.31 intel/2024.2.1 ncarcompilers/1.0.0 cray-mpich/8.1.29 netcdf/4.9.2 
 #module load peak-memusage
 
 setenv OMP_NUM_THREADS 1

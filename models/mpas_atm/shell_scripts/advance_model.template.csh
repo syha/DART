@@ -1,6 +1,6 @@
 #!/bin/csh
 #
-# advance_model.template.csh 
+# advance_model.template.csh for mpas_atm
 #
 # A template for advance_model.csh to run the MPAS-A(tmostphere) model from the DART analysis.
 #
@@ -11,17 +11,18 @@
 # This script performs the following:
 # 1.  Creates a temporary directory to run an MPAS-A realization (see options)
 # 2.  Gets all the files necessary for the model run in each member directory.
-# 3.  Updates an MPAS namelist from a template with new dates.
+# 3.  Updates an MPAS namelist from a template with new dates (and physics for $multihysics=true).
 # 4.  Runs the MPAS-A model in a restart mode until the target time is reached.
 # 5.  Regional MPAS is also supported, if chosen.
 # 6.  Checks for incomplete runs.
 #
-# As of Dec 2024, a new feature is supported as below.
+# As of Dec 2024, a new features (for MPASV8+) is supported as below.
 # 7. Cycling in non-restart mode is also supported through 'da_state' and 'invariant' streams.
+#
 #
 # Note: 1. This script supports MPAS V7+ and the Manhattan release of DART. 
 #          It is NOT backward compatible for older versions.
-#       2. MPAS is run in a restart mode (by default) during the cycles, which means
+#       2. MPAS is run in a restart mode during the cycles, which means
 #          both input and output of the model run are restart files.
 #          This also means that one should not delete the member directory as
 #          one needs to keep the restart file for each member during the cycle.
@@ -44,7 +45,7 @@ set ensemble_max    = $2
 #-------------------------------------------------------------------
 set save_prior = false 
 
-echo "Running advance_model.csh and save_prior = ${save_prior} for ensemble member ${ensemble_member}."
+echo "Running advance_model.csh with save_prior = ${save_prior} for ensemble member ${ensemble_member}."
 
 # mpi command
 #-------------------------------------------------------------------
@@ -102,7 +103,7 @@ endif
 # Solution: Use "advance_time -w" which always returns ISO format (YYYY-MM-DD_HH:MM:SS),
 # then strip non-digits and take 12 characters to get a canonical YYYYMMDDHHMM timestamp
 # that works for both hourly and sub-hourly cycling without any special-casing.
-alias iso2tag "echo \!* -w | ${CENTRALDIR}/advance_time | sed 's/[^0-9]//g' | cut -c1-12"
+alias iso2tag 'echo \!* -w | ${CENTRALDIR}/advance_time | sed "s/[^0-9]//g" | cut -c1-12'
 
 # A list of input analysis file names (i.e., output from update_mpas_states).
 #-------------------------------------------------------------------
@@ -119,12 +120,12 @@ endif
 # Common input files based on the model configuration
 #-------------------------------------------------------------------
 # Get the grid info files - now for PIO
-set fs_grid = `grep config_block_decomp_file_prefix ${CENTRALDIR}/namelist.atmosphere | awk '{print $3}' | sed -e "s/'//g"`
+set fs_grid = `grep config_block_decomp_file_prefix ${CENTRALDIR}/namelist.atmosphere | awk '{print $3}' | sed -e "s/['\"]//g"`
 
 # Surface update
 set if_sfc_update = `grep config_sst_update ${CENTRALDIR}/namelist.atmosphere | awk '{print $3}'`
-set fsfc = `sed -n '/<stream name="surface"/,/\/>/ p' ${CENTRALDIR}/streams.atmosphere | \
-            sed -n 's/.*filename_template="\([^"$]*\).*/\1/p'`
+set fsfc = `sed -n '/<stream name=\"surface\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${CENTRALDIR}/streams.atmosphere | \
+               grep filename_template | awk -F= '{print $2}' | awk -F$ '{print $1}' | sed -e 's/"//g'`
 
 # Sanity check - A switch for cycling
 set if_DAcycling = `grep config_do_DAcycling ${CENTRALDIR}/namelist.atmosphere | wc -l`
@@ -138,32 +139,33 @@ endif
 # Check cycling mode and input/output file names.
 #----------------------------------------------------------------------
 set fnml = ${CENTRALDIR}/namelist.atmosphere
-set if_restart = `grep config_do_restart   ${fnml} | awk '{print $3}' | sed "s/[.']//g" | sed 's/"//g'`
-set if_cycling = `grep config_do_DAcycling ${fnml} | awk '{print $3}' | sed "s/[.']//g" | sed 's/"//g'`
-set if_jedi_io = `grep config_jedi_da      ${fnml} | awk '{print $3}' | sed "s/[.']//g" | sed 's/"//g'`
+set if_restart = `grep config_do_restart   ${fnml} | awk '{print $3}' | sed -e "s/[.'\"]//g"`
+set if_cycling = `grep config_do_DAcycling ${fnml} | awk '{print $3}' | sed -e "s/[.'\"]//g"`
+set if_jedi_io = `grep config_jedi_da      ${fnml} | awk '{print $3}' | sed -e "s/[.'\"]//g"`
 
 # Prefix of each file name (for I/O)
 set fInO = ${CENTRALDIR}/streams.atmosphere
 
-set finit = `sed -n '/<immutable_stream name="input"/,/\/>/ p' ${fInO} | \
-             sed -n 's/.*filename_template="\([^".]*\).*/\1/p'`
-
-if ( ( ${if_restart} == true ) && ( ${if_cycling} == true ) ) then 
-     set frst = restart
-else 				#&& ( ${if_jedi_io} == true ) ) then
-     set frst = da_state
+set finit = `sed -n '/<stream name=\"input\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${fInO} | \
+                    grep filename_template | awk -F= '{print $2}' | sed -e 's/"//g'`
+set fhead = `sed -n '/<immutable_stream name=\"restart\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${fInO} | \
+                    grep filename_template | awk -F= '{print $2}' | awk -F$ '{print $1}' | sed -e 's/"//g'`
+set fdiag = `sed -n '/<stream name=\"diagnostics\"/,/<\/stream>/{/Scree/{p;n};/##/{q};p}' ${fInO} | \
+                    grep filename_template | awk -F= '{print $2}' | awk -F$ '{print $1}' | sed -e 's/"//g'`
+   
+if ( ( ${if_restart} == false ) && ( ${if_cycling} == true ) && ( ${if_jedi_io} == true ) ) then
+	set fhead = `sed -n '/<immutable_stream name=\"da_state\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${fInO} | \
+                   grep filename_template | awk -F= '{print $2}' | awk -F$ '{print $1}' | sed -e 's/"//g'`
+   set fstatic = `sed -n '/<stream name=\"invariant\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${fInO} | \
+                     grep filename_template | awk -F= '{print $2}' | sed -e 's/"//g'`
 endif
-set fhead = `sed -n '/<immutable_stream name="'"${frst}"'"/,/\/>/ p' ${fInO} | \
-            sed -n 's/.*filename_template="\([^".]*\).*/\1/p'`
-set fdiag = `sed -n '/<stream name="'"diagnostics"'"/,/\/>/ p' ${fInO} | \
-            sed -n 's/.*filename_template="\([^".]*\).*/\1/p'`
 
 echo "Cycling mode: restart = ${if_restart}, DAcycling = ${if_cycling}, jedi_io = ${if_jedi_io}"
-echo "Input files:  ${finit} for input fields" 
+echo "Input files: ${fstatic} for static fields, ${finit} for input fields" 
 echo "Output files: ${fhead}.YYYY-MM-DD_HH.MN.SS.nc and ${fdiag}.YYYY-MM-DD_HH.MN.SS.nc"
 echo ""
 
-set is_it_regional = `grep config_apply_lbcs ${fnml} | awk '{print $3}' | sed -e 's/"//g'`
+set is_it_regional = `grep config_apply_lbcs ${fnml} | awk '{print $3}' | sed -e "s/[.'\"]//g"`
 if ( ${is_it_regional} == true ) then
       echo "This is a regional MPAS run. We need LBCs and update_bc."
       set blist  = `grep update_boundary_file_list ${CENTRALDIR}/input.nml | awk '{print $3}' | cut -d ',' -f1 | sed -e "s/'//g" | sed -e 's/"//g'`
@@ -193,7 +195,7 @@ while( $ensemble_member <= $ensemble_max )
    ${COPY} ${CENTRALDIR}/namelist.atmosphere           .         || exit 1
    ${LINK} ${CENTRALDIR}/${fs_grid}*                   .	        || exit 1
 
-   if( $if_sfc_update == .true. ) then
+   if( $if_sfc_update == .true. || $if_sfc_update == true ) then
        ${LINK} ${CENTRALDIR}/${fsfc} .
        ls -lL $fsfc						 || exit 1
    endif
@@ -221,10 +223,6 @@ while( $ensemble_member <= $ensemble_max )
    @ mins   = $remain / 60
    @ secs   = $remain % 60
 
-   # Time for input and output file names.
-   set tnow = `echo $anal_utc | sed -e 's/:/\./g'`
-   set tnxt = `echo $targ_utc | sed -e 's/:/\./g'`
-
    # forecast length in ISO format (DD_HH:MM:SS) for namelist editing
    set fcst_length = `printf "%02d_%02d:%02d:%02d" $days $hours $mins $secs`
 
@@ -243,14 +241,14 @@ EOF
    if ( $is_it_regional == true ) then # For regional runs, we need to update the LBC file as well.
         set flbc = `head -n $ensemble_member ${CENTRALDIR}/${blist}  | tail -1`
         set flbc = `basename $flbc`
+        set tnow = `echo $anal_utc | sed -e 's/:/\./g'`
+        set tnxt = `echo $targ_utc | sed -e 's/:/\./g'`
         set flbcN = `echo $flbc | sed -e "s/$tnow/$tnxt/g"`
         ls -lL ${flbc} ${flbcN} 		|| exit 1
    endif
 
    # clean out any old log files
    if ( -e log.atmosphere.0000.out ) ${REMOVE} log.atmosphere.0000.out
-   set finit_mpas = ${fhead}.`echo ${anal_utc} | sed -e 's/:/\./g'`.nc
-   if ( -e ${finit_mpas} ) ${MOVE} ${finit_mpas} prior.${finit_mpas}
 
    # Run the model
    $mpicmd ./atmosphere_model
@@ -260,7 +258,7 @@ EOF
    ls -lrt >! list.${tanal}.txt
   
    # Model output at the target time
-   set output_file = ${fhead}.`echo ${targ_utc} | sed -e 's/:/\./g'`.nc
+   set output_file = ${fhead}`echo ${targ_utc} | sed -e 's/:/\./g'`.nc
    if ( ! -e ${output_file} ) then
       echo "ABORT: model output ${output_file} not found (model crashed before writing output)"
       echo $ensemble_member >>! ${CENTRALDIR}/blown.${tanal}_${tfcst}.out
@@ -293,7 +291,6 @@ EOF
    #-------------------------------------------------------------------
    set vlist = VARLIST
    # 'xtime,theta,rho,u,w,qv,qc,qr,uReconstructZonal,uReconstructMeridional'
-
    if($save_prior == true) then
       set fprior = prior.`echo ${targ_utc} | sed -e 's/:/\./g'`.nc
       ncks -O -v ${vlist} ${output_file} $fprior

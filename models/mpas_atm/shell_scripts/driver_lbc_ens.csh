@@ -1,14 +1,8 @@
 #!/bin/tcsh
-# Get ensemble LBCs ready for cycling.
+# Get ensemble LBCs ready for cycling. 
 # For a retrospective study, assuming that they were created beforehand, we only link to them here.
 # To run init_atmosphere with config_init_case = 9, first run WPS/ungrib.exe over original grib data.
 # That is not supported here (yet).
-#
-# Time format conventions:
-#   - Loop/comparison/subdir keys use a 12-digit YYYYMMDDHHMM string,
-#   - LBC filenames follow the MPAS ISO form: lbc.YYYY-MM-DD_HH.MM.SS.nc
-#
-# Written by Soyoung Ha (MMM/NCAR) Nov-2025
 
 if ( $#argv >= 1 ) then
    set fn_param = ${1}
@@ -17,11 +11,15 @@ else
 endif
 source ${fn_param}
 
-# Derive 12-digit YYYYMMDDHHMM timestamps (works for both hourly and sub-hourly)
-set time_beg = `echo $DATE_BEG 0 -w | $EXE_DIR/advance_time | sed 's/[^0-9]//g' | cut -c1-12`
-set time_end = `echo $DATE_END 0 -w | $EXE_DIR/advance_time | sed 's/[^0-9]//g' | cut -c1-12`
+set time_beg = `echo $DATE_BEG 0 | ${EXE_DIR}/advance_time`	# YYYYMMDDHH (or YYYYMMDDHHmm if mm > 0)
+set time_end = `echo $DATE_END 0 | ${EXE_DIR}/advance_time`
 set intv_min = `expr ${INTV_SEC} \/ 60`
 set intv_hr  = `expr ${INTV_SEC} \/ 3600`
+
+set tcnt = `echo $time_beg | wc -c`
+if ($tcnt < 12 ) set time_beg = ${time_beg}00	#=> YYYYMMDDHH00 
+set tcnt = `echo $time_end | wc -c`
+if ($tcnt < 12 ) set time_end = ${time_end}00	#=> YYYYMMDDHH00 
 
 cd $RUN_DIR	|| exit		# Assume init ensemble were already created.
 ls -l  input.nml streams.atmosphere	|| exit
@@ -39,15 +37,17 @@ if( -e $blist) \rm -f $blist
 touch $blist
 
 echo "Coping (prior) LBC files into each member directory..."
+#echo "Creating ${blist} for a list of ensemble LBCs at each cycle"
+#touch ${blist}
 
 set tcyc = $time_beg
 while ( $tcyc <= $time_end )
-
+  
   echo $tcyc
+  set tcnt = `echo $tcyc | wc -c`
+  if ($tcnt < 12 ) set tcyc = ${tcyc}00					# YYYYMMDDHH
 
-  # ISO form for the LBC filename (e.g. lbc.2017-04-27_00.00.00.nc)
-  set tcyc_iso = `echo $tcyc 0 -w | $EXE_DIR/advance_time | sed -e 's/:/\./g'`
-  set lbc0 = ${fbdy}${tcyc_iso}.nc
+  set lbc0 = ${fbdy}`echo ${tcyc} 0 -w | ${EXE_DIR}/advance_time | sed -e 's/:/\./g'`.nc
 
   set nens0 = `ls -1 ${LBC_DIR}/${tcyc}/${ENS_DIR}*/${lbc0} | wc -l`
 
@@ -61,21 +61,22 @@ while ( $tcyc <= $time_end )
 
      if (! -d ${ENS_DIR}${n}) mkdir ${ENS_DIR}${n}
      cd ${ENS_DIR}${n}
-     #set num = `printf "%02d" $n` # two-digit integer like 01, 02, 03, ...
+     set num = `printf "%02d" $n` # two-digit integer like 01, 02, 03, ...
      #ls -l   ${LBC_DIR}/${tcyc}/${ENS_DIR}${num}/${lbc0} 	|| exit
      if ( ! -e ${lbc0} ) then
-     ${COPY} ${LBC_DIR}/${tcyc}/${ENS_DIR}${n}/${lbc0} .	|| exit
+     ${COPY} ${LBC_DIR}/${tcyc}/${ENS_DIR}${num}/${lbc0} .	|| exit
      endif
 
      cd ../
      ls -l ${ENS_DIR}${n}/${lbc0}
-     if ( $tcyc == $time_beg ) echo ${ENS_DIR}${n}/${lbc0} >> $blist
+     if ( $tcyc == $time_beg ) echo ${ENS_DIR}${n}/${lbc0} >> $blist   
 
      @ n++
   end # while ( $n <= $ENS_SIZE )
 
-  # Advance to the next cycle, keeping the 12-digit form
-  set tnxt = `echo $tcyc +${INTV_SEC}s -w | $EXE_DIR/advance_time | sed 's/[^0-9]//g' | cut -c1-12`
+  set tnxt = `echo $tcyc +${INTV_SEC}s | ${EXE_DIR}/advance_time`	# YYYYMMDDHHMM
+  set tcnt = `echo $tnxt | wc -c`
+  if ($tcnt < 12 ) set tnxt = ${tnxt}00
 
   set tcyc = $tnxt
 

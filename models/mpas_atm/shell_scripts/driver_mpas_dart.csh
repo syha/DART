@@ -47,13 +47,20 @@
 #  6. advance_model.template.pbs (for an mpi mpas run; using separate nodes for each ensemble member)
 #  7. advance_model.template.csh (for mpas/filter) - a driver script to run mpas forecast at each cycle
 #
-#  Input files to run this script:
+#  Input files needed to run this script:
 #  A. input_state_file_list  - a list of input ensemble netcdf files for DART/filter
 #  B. output_state_file_list - a list of output ensemble netcdf files from DART/filter
 #  C. RUN_DIR/member#/${mpas_filename}          - the input file for each member
 #  D. OBS_DIR/obs_seq.out.${YYYYMMDDHHMM}       - obs sequence files for each analysis cycle
 #     For sub-hourly cycling (e.g. 15-min), file names use 12-digit YYYYMMDDHHMM.
 #     For hourly cycling, 10-digit YYYYMMDDHH is also accepted (minutes default to 00).
+#  E. init.nc  - an MPAS initial condition (F_TEMPLATE in setup.csh),
+#                also used for 'init_template_filename' in input.nml for DART/filter,
+#                and also used for invariant.nc for non-restart cycling.
+#  F. graph.info(.part.#) - an MPAS mesh decomposition file (F_GRAPH in setup.csh)
+#  G. For regional MPAS-DART, lbc files in each cycle and member directory 
+#     (e.g., YYYYMMDDHH/member1/lbc.$Y-$M-$D_$h.$m.$s.nc)
+#
 #  For the file/directory structure, read README and readme.rst in DART/models/mpas_atm/ and
 #  then check several README files in DART/models/mpas_atm/shell_scripts/.
 #
@@ -74,7 +81,7 @@
 #
 #  For any questions or comments, contact: syha@ucar.edu (+1-303-497-2601)
 ##############################################################################################
-set echo
+#set echo
 
 set fn_param = `pwd`/setup.csh
 
@@ -89,12 +96,14 @@ echo  Experiment name: $EXPERIMENT_NAME at `hostname`
 echo '===================================================='
 
 if( ! -e $RUN_DIR ) mkdir -p $RUN_DIR
+cp -p $0 $RUN_DIR/
+cp -p $fn_param $RUN_DIR/
+
 cd $RUN_DIR
 
 echo Running $0 in $RUN_DIR
 echo
 if ( ! -d logs ) mkdir logs
-
 #------------------------------------------
 # Prepare all the necessary files.
 #------------------------------------------
@@ -120,7 +129,11 @@ endif
 set FILELIST = ( $fgraph )
 
 if ( ! -e ${F_TEMPLATE} ) then
-
+     echo "Cannot find ${F_TEMPLATE}"
+     exit
+endif
+set FILELIST = ( $fgraph `basename ${F_TEMPLATE}` )
+	
 set flist = ( filter advance_time update_mpas_states )
 foreach fn ( $flist )
    echo ${LINK} ${EXE_DIR}/${fn} .
@@ -177,8 +190,8 @@ if ( ${USE_REGIONAL} == true ) then
                exit
             endif
          endif
+         set FILELIST = ( $FILELIST $fn )
       end
-      set FILELIST = ( $FILELIST $fn )
 endif
 # === End for Regional cycling ===
 
@@ -188,15 +201,14 @@ endif
 # Set USE_RESTART in setup.csh.
 foreach fn ( ${STREAM_ATM} )
       if ( ! -r ${fn} || -z $fn ) then
-         if ( $USE_RESTART == true ) then
-             ${COPY} ${DATA_DIR}/${fn} .
-         endif
+         ${COPY} ${DATA_DIR}/${fn} .			|| exit
       endif
       if ( ! $status == 0 ) then
          echo ABORT\: We cannot find required file $fn.
          exit
       endif
 end
+ls -l $fn	|| exit
 set FILELIST = ( $FILELIST $fn )
 echo
 
@@ -258,14 +270,14 @@ echo
 
 # === Coefficient files needed. Add more in setup.csh, if needed.
 set flist = ( ${SAMPLING_ERR_TBL} )
-if ( ${USE_RTTOV} == true ) set flist = ( $flist ${RTTOV_FILES} )
+#if ( ${USE_RTTOV} == true ) set flist = ( $flist ${RTTOV_FILES} )	# Not supported yet.
 foreach f ( $flist )
    set fn = `basename $f`
    if ( ! -r ${fn} || -z $fn ) then
             ${LINK} ${f} .			|| exit
    endif
 end
-set FILELIST = ( $FILELIST $flist )
+set FILELIST = ( $FILELIST `basename $flist` )
 
 #--------------------------------------------------------------------------
 # Edit namelist.atmosphere
@@ -293,8 +305,8 @@ ls -l ${NML_MPAS}					|| exit
 set FILELIST = ( $FILELIST ${NML_MPAS} )
 
 if ( $SST_UPDATE == true ) then
-  set fsst = `sed -n '/<stream name=\"surface\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${STREAM_ATM} | \
-              grep filename_template | awk -F= '{print $2}' | awk -F$ '{print $1}' | sed -e 's/"//g'`
+  set fsst = `sed -n '/<stream name="surface"/,/\/>/ p' ${STREAM_ATM} | \
+              grep 'filename_template' | sed 's/.*filename_template="\([^"$]*\).*/\1/'`
   ${LINK} ${SST_DIR}/${SST_FNAME} $fsst         || exit
 else
   echo NO SST_UPDATE...
@@ -350,28 +362,28 @@ set obs_seq_out = `grep obs_sequence_out_name  ${NML_DART} | awk '{print $3}' | 
 set fmesh = `grep init_template_filename ${NML_DART} | awk '{print $3}' | cut -d ',' -f1 | sed -e "s/'//g" | sed -e 's/"//g'`
 
 if ( ! -e $fmesh ) ${LINK} ${F_TEMPLATE} $fmesh    || exit
-set FILELIST = ( $FILELIST ${fmesh} )
+#set FILELIST = ( $FILELIST ${fmesh} )	# ${F_TEMPLATE} was already included.
 
 #--------------------------------------------------------
 # Take MPAS file names from streams.atmosphere.
 #--------------------------------------------------------
-set fini = `sed -n '/<immutable_stream name=\"input\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${STREAM_ATM} | \
-            grep filename_template | awk -F= '{print $2}' | sed -e 's/"//g'`
-set frst = `sed -n '/<immutable_stream name=\"restart\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${STREAM_ATM} | \
-            grep filename_template | awk -F= '{print $2}' | awk -F$ '{print $1}' | sed -e 's/"//g'`
+# Extract the base filename (before first '.') from a named stream's filename_template
+set fini = `sed -n '/<immutable_stream name="input"/,/\/>/ p' ${STREAM_ATM} | \
+            sed -n 's/.*filename_template="\([^".]*\).*/\1/p'`
 
-if ($fini != $fmesh) then
-   echo $fmesh in ${NML_DART} should be the same as $fini in ${STREAM_ATM}. Stop.
-   exit
+if ( ${USE_RESTART} == true ) then
+     set fhead = restart
+else
+     set fhead = da_state
+     set finv = `sed -n '/<immutable_stream name="invariant"/,/\/>/ p' ${STREAM_ATM} | \
+                 sed -n 's/.*filename_template="\([^"]*\).*/\1/p'`
+     ${LINK} ${F_TEMPLATE} $finv	# invariant.nc + mpasout for non-restartcycling
 endif
 
-if ( ${USE_RESTART} == false ) then
- set frst = `sed -n '/<immutable_stream name=\"da_state\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${STREAM_ATM} | \
-             grep filename_template | awk -F= '{print $2}' | awk -F$ '{print $1}' | sed -e 's/"//g'`
-endif
-
-set fbdy = `sed -n '/<immutable_stream name=\"lbc_in\"/,/\/>/{/Scree/{p;n};/##/{q};p}' ${STREAM_ATM} | \
-    grep filename_template | awk -F= '{print $2}' | awk -F$ '{print $1}' | sed -e 's/"//g'`
+set frst = `sed -n '/<immutable_stream name="'"${fhead}"'"/,/\/>/ p' ${STREAM_ATM} | \
+            sed -n 's/.*filename_template="\([^".]*\).*/\1/p'`
+set fbdy = `sed -n '/<immutable_stream name="lbc_in"/,/\/>/ p' ${STREAM_ATM} | \
+            sed -n 's/.*filename_template="\([^".]*\).*/\1/p'`
 
 #------------------------------------------
 # Initial ensemble for $DATE_INI
@@ -383,14 +395,21 @@ if( $DATE_BEG == $DATE_INI ) then
        set nens = `ls -1L $fens | wc -l`
     endif
     if( ! -e ${input_list} || $nens != ${ENS_SIZE} ) then
-            ${CSH_DIR}/driver_init_ens.csh ${fn_param}
+        echo Running driver_init_ens.csh to create initial ensemble.
+        ${CSH_DIR}/driver_init_ens.csh ${fn_param}
+	echo
     endif
     if ( ${USE_REGIONAL} == true ) then
        set  blist = `grep update_boundary_file_list input.nml | awk '{print $3}' | cut -d ',' -f1 | sed -e "s/'//g" | sed -e 's/"//g'`
+       if( ! -e $blist ) then
+	   echo Cannot find $blist. Stop.
+	   exit
+       endif
        set  nlist = `cat $blist | wc -l`
-       if( ! -e $blist || $nlist != $ENS_SIZE) then
+       if( $nlist != $ENS_SIZE ) then
        echo Running driver_lbc_ens.csh to copy ensemble LBC files...
        ${CSH_DIR}/driver_lbc_ens.csh ${fn_param}
+       echo
        endif
        set  nlist = `cat $blist | wc -l`
        if( $nlist != $ENS_SIZE) then
@@ -449,6 +468,26 @@ echo
 
 echo "Total of ${n_cycles} cycles from ${time_anl} to ${time_end} every ${intv_min} min."
 
+# Check output frequency in streams.atmosphere
+@ total_seconds = $INTV_DAY * 86400 + $INTV_SEC
+@ days = $total_seconds / 86400
+@ remain = $total_seconds % 86400
+@ hours = $remain / 3600
+@ remain = $remain % 3600
+@ mins = $remain / 60
+@ secs = $remain % 60
+
+set outfreq = `printf "%02d_%02d:%02d:%02d" $days $hours $mins $secs`
+set lbc_freq = `sed -n '/<immutable_stream name="lbc_in"/,/\/>/ p' ${STREAM_ATM} | \
+                grep 'input_interval=' | awk -F'"' '{print $(NF-1)}'`
+set out_freq = `sed -n '/<immutable_stream name="'"${fhead}"'"/,/\/>/ p' ${STREAM_ATM} | \
+                grep 'output_interval=' | awk -F'"' '{print $(NF-1)}'`
+
+# Update lbc and output frequency in streams.atmosphere
+# FIXME: 'sed -i' was only tested on Derecho/Linux.
+# Comment these two lines if streams.atmosphere is correctly edited for the intervals.
+sed -i '/<immutable_stream name="lbc_in"/,/\/>/ s|input_interval="'"${lbc_freq}"'"|input_interval="'"${outfreq}"'"|' ${STREAM_ATM}
+sed -i '/<immutable_stream name="'"${fhead}"'"/,/\/>/ s|output_interval="'"${out_freq}"'"|output_interval="'"${outfreq}"'"|' ${STREAM_ATM}
 #--------------------------------------------------------
 # Cycling gets started
 # All time variables (time_anl, time_pre, time_nxt) are
@@ -468,7 +507,7 @@ while ( $time_anl <= $time_end )
   if( ! -d ${sav_dir} ) mkdir -p ${sav_dir}
 
   echo
-  echo "icyc = ${icyc} at ${time_anl}: ${greg_obs_days}_${greg_obs_secs} in $sav_dir"
+  echo "icyc = ${icyc} at ${time_anl}: ${greg_obs_days}_${greg_obs_secs}" # in $sav_dir"
   echo
 
   #------------------------------------------------------
@@ -483,11 +522,11 @@ while ( $time_anl <= $time_end )
   endif
   if ( ${USE_RESTART} == true ) then
      set jedi_io    = false
-  else
+  else  # to output da_state files
      set jedi_io    = true
   endif
 
-  if ( -e init.sed ) ${REMOVE} init.sed script*.sed
+  if ( -e init.sed ) ${REMOVE} init.sed script*.sed namelist.temp
 
   cat >! init.sed << EOF3
    /config_do_DAcycling /c\
@@ -499,7 +538,6 @@ while ( $time_anl <= $time_end )
 EOF3
   mv ${NML_MPAS} namelist.temp
   sed -f init.sed namelist.temp >! ${NML_MPAS}
-  ${REMOVE} init.sed namelist.temp
 
   if ( $ADAPTIVE_INF == true ) then       # For a spatially-varying prior inflation.
 
@@ -519,104 +557,100 @@ EOF
 EOF
     endif
 
+    ${MOVE} ${NML_DART} ${NML_DART}.temp
+    sed -f script.sed ${NML_DART}.temp >! ${NML_DART}             || exit 2
   endif
-
-  ${MOVE} ${NML_DART} ${NML_DART}.temp
-  sed -f script.sed ${NML_DART}.temp >! ${NML_DART}             || exit 2
-  ${REMOVE} script.sed ${NML_DART}.temp
 
   #------------------------------------------------------
   # 2. Update the input file list to get filter started
   #------------------------------------------------------
-  set f_rst =   ${frst}`echo ${anal_utc} | sed -e 's/:/\./g'`.nc
-  set f_anl = analysis.`echo ${anal_utc} | sed -e 's/:/\./g'`.nc
-  set f_out =   ${frst}`echo ${anal_utc} | sed -e 's/:/\./g'`.nc  # same as f_rst after analysis
-  set f_prior = prior.`echo ${anal_utc} | sed -e 's/:/\./g'`.nc
-  set f_diag  = diag.`echo ${anal_utc}  | sed -e 's/:/\./g'`.nc
-  set f_pdiag = pdiag.`echo ${anal_utc} | sed -e 's/:/\./g'`.nc
+  set f_ini =   ${fini}.`echo ${anal_utc} | sed -e 's/:/\./g'`.nc
+  set f_out =   ${frst}.`echo ${anal_utc} | sed -e 's/:/\./g'`.nc
+  set f_anl =  analysis.`echo ${anal_utc} | sed -e 's/:/\./g'`.nc
+  set f_prior =   prior.`echo ${anal_utc} | sed -e 's/:/\./g'`.nc
+  set f_diag  =   diag.`echo ${anal_utc}  | sed -e 's/:/\./g'`.nc
 
   echo "Input ensemble for ${time_anl}"
   if( -e ${input_list})  ${REMOVE} ${input_list}
   if( -e ${output_list}) ${REMOVE} ${output_list}
-  echo "Creating ${input_list} and ${output_list}"
+  echo "Creating the input list (${input_list}) and the output list (${output_list})."
 
-  set finput = ${f_rst}
-  set i = 1
-  while ( $i <= ${ENS_SIZE} )
-    if ( $icyc == 1 && ! -d ${ENS_DIR}${i} ) ${LINK} ../${ENS_DIR}${i} .
-
-    # Back up prior and clean stale analysis files before writing new list
-    if( -e ${ENS_DIR}${i}/${f_out} ) then
-       ${COPY} ${ENS_DIR}${i}/${f_out} ${ENS_DIR}${i}/${f_prior} &
-       ${COPY} ${ENS_DIR}${i}/${f_out} ${ENS_DIR}${i}/${f_rst}   &
-    endif
-    if ( -e ${ENS_DIR}${i}/${f_diag} ) then
-       ${MOVE} ${ENS_DIR}${i}/${f_diag} ${ENS_DIR}${i}/${f_pdiag} &
-    endif
-
-    @ r = $i / 10
-    if ( $r == 0 ) wait
-    @ i++
-  end
-  wait
+  set finput = ${f_ini}    # init.$Y-$M-$D_$h.$m.$s.nc
+  if ( ${USE_RESTART} == true &&  $icyc > 1 ) set finput = ${f_out}    # restart.$Y-$M-$D_$h.$m.$s.nc
 
   set i = 1
   while ( $i <= ${ENS_SIZE} )
-    if ( $icyc == 1 ) set finput = ${fini}
+   #if ( ! -d ${ENS_DIR}${i} ) mkdir ${ENS_DIR}${i}
+
+    if ( ${USE_RESTART} == false ) then
+         # Move mpasout to init, which will be updated with analysis through update_mpas_state.
+	 # If mpasout exists, the model fails because it cannot be overwritten at t=t0.
+	 # With config_jedi_da = true, mpasout (in "da_state") is created only as output, not as input.
+	 # Thus, we need to rename it as $f_ini (init.$Y-$M-$D_$h.$m.$s.nc) to initialize the model with it.
+         if( -e ${ENS_DIR}${i}/${f_out} ) \
+             ${MOVE} ${ENS_DIR}${i}/${f_out} ${ENS_DIR}${i}/${f_ini}		# mpasout should not exist any more.
+	 if ( ! -e ${ENS_DIR}${i}/$finv ) ${LINK} ${RUN_DIR}/$finv ${ENS_DIR}${i}/$finv	# invariant.nc
+	 ls -l ${ENS_DIR}${i}/${f_ini} ${ENS_DIR}${i}/$finv	|| exit
+    endif #( ${USE_RESTART} == false )
+
     if (! -e ${ENS_DIR}${i}/${finput}) then
         echo "Cannot find ${ENS_DIR}${i}/${finput}. Stop."
         exit
     else
-        if( -e ${ENS_DIR}${i}/${f_out}  ) ${REMOVE} ${ENS_DIR}${i}/${f_out}
-        if( -e ${ENS_DIR}${i}/${f_diag} ) ${REMOVE} ${ENS_DIR}${i}/${f_diag}
         echo ${ENS_DIR}${i}/${finput} >> ${input_list}
     endif
+
+    # Output from DART/filter
     echo ${ENS_DIR}${i}/${f_anl} >> ${output_list}
     @ i++
   end
 
   set ne = `cat ${input_list} | wc -l `
   if ( $ne != $ENS_SIZE ) then
-     echo "We need ${ENS_SIZE} initial ensemble members, but found ${ne} only."
+     echo "We need ${ENS_SIZE} input ensemble members, but found ${ne} only."
      exit
   endif
   echo
 
   #------------------------------------------------------
-  # Clip hydrometeors for QCEFF (if qceff_table is set)
-  # Uses a PBS array job for efficiency (one job per member).
+  # Clip hydrometeors for QCEFF (if qceff_table is set in input.nml)
+  # in each prior ensemble member at every cycle.
   #------------------------------------------------------
-  if ( $ftbl != "" && ! -e ./clip_done ) then
+  if ( $ftbl != "" ) then
        if ( -e check_negative.log ) ${REMOVE} check_negative.log
        python $CSH_DIR/check_negative_ensemble.py $RUN_DIR ${finput} > check_negative.log
        set nneg = `tail -1 check_negative.log | awk '{print $1}' | bc`
 
        if ( $nneg > 0 ) then
-          echo "${nneg} negative values found. Clipping hydrometeors (array job)."
-          set jobn = clip.`echo ${time_anl} | cut -c5-`
+          echo "${nneg} negative values found. Clipping hydrometeors for each member."
 
-          cat >! clip.pbs << EOF
+	  set i = 1
+	  while ( $i <= ${ENS_SIZE} )
+	    set jobn = clip.`echo $EXPERIMENT_NAME | cut -c1``echo ${time_anl} | cut -c9-`.e$i
+	    set ff = $RUN_DIR/${ENS_DIR}${i}/${finput}
+
+            cat >! clip.pbs << EOF
 #!/bin/tcsh
 #============================================
 #PBS -N $jobn
 #PBS -A ${PROJ_NUMBER}
+#PBS -o logs/${jobn}.log
 #PBS -j oe
 #PBS -q main
-#PBS -l job_priority=premium
+#PBS -l job_priority=regular
 #PBS -l select=1:mpiprocs=1:ncpus=1
 #PBS -l walltime=00:10:00
-#PBS -J 1-${ENS_SIZE}%10
 #============================================
-source $MODFILE
-set memid = \${PBS_ARRAY_INDEX}
-ls -l $RUN_DIR/${ENS_DIR}\${memid}/${finput}
-$CSH_DIR/clip_hydro_per_member.csh $RUN_DIR/${ENS_DIR}\${memid} "${finput}"
-ls -l $RUN_DIR/${ENS_DIR}\${memid}/${finput}
+ls -l $ff
+$CSH_DIR/clip_hydro_per_member.csh $RUN_DIR/${ENS_DIR}${i} "${finput}"
+ls -l $ff
 EOF
-          set jid = `qsub clip.pbs`
-          sleep 60
+            set jid = `qsub clip.pbs`
+            sleep 60
+	    @ i++
+	  end
 
-          # Wait until the array job is finished.
+          # Wait until the last member is finished.
           set is_there = 0
           while ( $is_there == 0 )
             sleep 30
@@ -624,18 +658,24 @@ EOF
             set is_there = $?
           end
 
-          set i = 1
-          while ( $i <= ${ENS_SIZE} )
-            ls -l ${ENS_DIR}${i}/${finput}
-            @ i++
-          end
-          ${MOVE} ${jobn}.o* ./logs
-          touch clip_done
-
        endif	# if ( $nneg > 0 )
-  endif	# if ( $ftbl != "" )
 
-  if ( -e ./clip_done ) ${REMOVE} ./clip_done
+       # Ensure that all the input files are non-negative.
+       python $CSH_DIR/check_negative_ensemble.py $RUN_DIR ${finput} > check_negative.final.log
+       set nng = `tail -1 check_negative.final.log | awk '{print $1}' | bc`
+
+       if ( $nng > 0 ) then
+            echo "Still $nng members have negative hydrometeors. Not ready to run filter. Stop."
+            exit
+       endif # ( $nng > 0 ) - to double check.
+
+       set i = 1
+       while ( $i <= ${ENS_SIZE} )
+          ls -l ${ENS_DIR}${i}/${finput}
+          @ i++
+       end
+
+  endif	# if ( $ftbl != "" ) then
 
   if ( $ADAPTIVE_INF == true && $icyc > 1 ) then
     if ( ! -e ${RUN_DIR}/${time_pre}/${INFL_OUT}_mean.nc ) then
@@ -643,7 +683,7 @@ EOF
       exit
     endif
     ${LINK} ${RUN_DIR}/${time_pre}/${INFL_OUT}_mean.nc ${INFL_IN}_mean.nc	|| exit
-    ${LINK} ${RUN_DIR}/${time_pre}/${INFL_OUT}_sd.nc   ${INFL_IN}_sd.nc	|| exit
+    ${LINK} ${RUN_DIR}/${time_pre}/${INFL_OUT}_sd.nc   ${INFL_IN}_sd.nc		|| exit
   endif
 
   #------------------------------------------------------
@@ -748,6 +788,7 @@ EOF
   #------------------------------------------------------
   # 7. Run update_bc for all ensemble members (regional MPAS)
   #------------------------------------------------------
+  set bdylist = ""
   if ( ${USE_REGIONAL} == true ) then
 
        set anllist = `grep update_analysis_file_list input.nml | awk '{print $3}' | cut -d ',' -f1 | sed -e "s/'//g" | sed -e 's/"//g'`
@@ -762,20 +803,20 @@ EOF
        echo Creating $bdylist for update_bc now.
        touch $bdylist bdynext
        # lbc file names use ISO UTC format (YYYY-MM-DD_HH.MM.SS) from advance_time -w
-       set lbc0 = ${fbdy}`echo ${time_anl} 0 -w | ./advance_time | sed -e 's/:/\./g'`.nc
-       set lbcN = ${fbdy}`echo ${time_nxt} 0 -w | ./advance_time | sed -e 's/:/\./g'`.nc
-       set g_fc = ${f_rst}	# analysis after update_mpas_states
+       set lbc0 = ${fbdy}.`echo ${time_anl} 0 -w | ./advance_time | sed -e 's/:/\./g'`.nc
+       set lbcN = ${fbdy}.`echo ${time_nxt} 0 -w | ./advance_time | sed -e 's/:/\./g'`.nc
 
        set n = 1
        while ( $n <= $ENS_SIZE )
 
-	set num = `printf "%02d" $n`
+	#set num = `printf "%02d" $n`
 
         ls -lL ${ENS_DIR}${n}/${lbc0}                                    || exit
         echo ${ENS_DIR}${n}/${lbc0} >> $bdylist
 
         if( ! -e ${ENS_DIR}${n}/${lbcN} ) then
-          ${COPY} ${LBC_DIR}/${time_anl}/${ENS_DIR}${num}/${lbcN} ${ENS_DIR}${n}/    || exit
+	 #${COPY} ${LBC_DIR}/${time_anl}/${ENS_DIR}${num}/${lbcN} ${ENS_DIR}${n}/    || exit
+          ${COPY} ${LBC_DIR}/${time_anl}/${ENS_DIR}${n}/${lbcN} ${ENS_DIR}${n}/    || exit
         endif
         ls -1 ${ENS_DIR}${n}/${lbcN} >> bdynext
 
@@ -783,7 +824,7 @@ EOF
        end
 
   set  nbdy = `cat $bdylist | wc -l`
-  set nbdyN = `cat bdynext | wc -l`
+  set nbdyN = `cat bdynext  | wc -l`
   if($nbdy != $ENS_SIZE || $nbdyN != $ENS_SIZE) then
      echo Not enough LBC files for the regional MPAS run: $nbdy and $nbdyN. Stop.
      exit
@@ -806,22 +847,23 @@ EOF
 
   #------------------------------------------------------
   # 8. Advance model for each member
-  # Uses PBS array job (-J) when RUN_IN_PBS=yes for efficiency.
-  # Each array element handles one ensemble member.
   #------------------------------------------------------
+  # Run forecast for each member until the next analysis time
   echo Advance model for ${ENS_SIZE} members now...
 
   if( -e list.${time_nxt}.txt ) \rm -f list.${time_nxt}.txt
 
-  if ( $RUN_IN_PBS == "yes" ) then  # Derecho: array job over members
+  set n = 1
+  while ( $n <= $ENS_SIZE )
 
-     set jobname = ${EXPERIMENT_NAME}.`echo $time_anl | cut -c5-`  # MMDDHHmm
-     set jobn    = `echo $jobname | cut -c1-8`                      # for qstat
+   if ( $RUN_IN_PBS == "yes" ) then  # Derecho
+
+     set jobname = ${EXPERIMENT_NAME}.`echo $time_anl | cut -c7-`.e${n}  # MMDDHHmm
 
      cat >! advance.sed << EOF
      s#JOB_NAME#${jobname}#g
      s#PROJ_NUMBER#${PROJ_NUMBER}#g
-     s#ENS_SIZE#${ENS_SIZE}#g
+     s#ENS_MEM#${n}#g
      s#QUEUE#${QUEUE_MPAS}#g
      s#NODES#${MODEL_NODES}#g
      s#NPROC#${N_PROCS_MPAS}#g
@@ -830,35 +872,27 @@ EOF
 EOF
      sed -f advance.sed advance_model.template.pbs >! advance_model.pbs
      set jid = `qsub advance_model.pbs`
-     sleep 60
-     ${REMOVE} advance.sed
+     sleep 30
 
-  else  # serial: run members one at a time
+   else  # serial: run members one at a time
 
-     set n = 1
-     while ( $n <= $ENS_SIZE )
        ./advance_model.csh $n $n >! logs/advance_model.${time_anl}.cycle${icyc}.e${n}.log
-       @ n++
-     end
 
-  endif
+   endif
+
+   @ n++
+  end
 
   if ( $RUN_IN_PBS == yes ) then
-    # Wait until all model advance jobs are finished.
+    # Check if all members are done advancing model.
     set is_there = 0
     while ( $is_there == 0 )
       sleep 30
       qstat -w $jid
       set is_there = $?
     end
-
-    # Rename PBS job logs for readability
-    set rename_jobid = `echo $jid | sed 's/\[.*//'`
-    if ( -e logs/${jobname}.o${rename_jobid}.* ) then
-       rename "o${rename_jobid}." "log.e" logs/${jobname}.o${rename_jobid}.*
-    endif
     date
-    sleep 30
+    sleep 15
   endif
 
   #------------------------------------------------------

@@ -11,7 +11,7 @@
 # This script performs the following:
 # 1.  Creates a temporary directory to run an MPAS-A realization (see options)
 # 2.  Gets all the files necessary for the model run in each member directory.
-# 3.  Updates an MPAS namelist from a template with new dates (and physics for $multihysics=true).
+# 3.  Updates an MPAS namelist from a template with new dates.
 # 4.  Runs the MPAS-A model in a restart mode until the target time is reached.
 # 5.  Regional MPAS is also supported, if chosen.
 # 6.  Checks for incomplete runs.
